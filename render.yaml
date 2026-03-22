@@ -1,0 +1,48 @@
+## render.yaml — Configuração de deploy no Render.com
+## Documentação: https://render.com/docs/render-yaml-spec
+
+services:
+  - type: web
+    name: bk-estudo-protecao
+    runtime: python
+    plan: free
+    region: oregon
+
+    # Comando de build: instala dependências do sistema (WeasyPrint) + Python
+    buildCommand: |
+      apt-get install -y --no-install-recommends \
+        libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf2.0-0 \
+        libffi-dev shared-mime-info libcairo2 libcairo-gobject2 && \
+      pip install --upgrade pip && \
+      pip install -r requirements.txt
+
+    # Comando de start: uvicorn com porta dinâmica do Render
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    # Variáveis de ambiente (valores sensíveis definidos no dashboard do Render)
+    envVars:
+      - key: APP_ENV
+        value: production
+
+      - key: DEBUG
+        value: "false"
+
+      - key: SECRET_KEY
+        generateValue: true   # Render gera automaticamente
+
+      - key: ALGORITHM_VERSION
+        value: "1.0.0"
+
+      - key: ALLOWED_ORIGINS
+        value: https://bk-estudo-protecao.onrender.com
+
+      # DATABASE_URL e DATABASE_URL_SYNC: definir manualmente no dashboard
+      # com a string de conexão do Neon PostgreSQL (asyncpg e psycopg2)
+      - key: DATABASE_URL
+        sync: false           # Não commitar — definir no dashboard
+
+      - key: DATABASE_URL_SYNC
+        sync: false           # Não commitar — definir no dashboard
+
+    # Auto-deploy a cada push na branch master
+    autoDeploy: true
