@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard Executivo{% endblock %}
+{% block page_subtitle %}Visão geral dos projetos e estudos ativos{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="init()">
+
+  <!-- ─── Cards de resumo ─────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+    <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Projetos Ativos</p>
+          <p class="text-3xl font-bold text-bk-navy mt-1" x-text="stats.projects_active">—</p>
+          <p class="text-xs text-gray-400 mt-1">Em elaboração / revisão</p>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-2.5">
+          <svg class="w-6 h-6 text-bk-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Estudos Calculados</p>
+          <p class="text-3xl font-bold text-bk-green mt-1" x-text="stats.studies_calculated">—</p>
+          <p class="text-xs text-gray-400 mt-1">Com resultado válido</p>
+        </div>
+        <div class="bg-green-50 rounded-lg p-2.5">
+          <svg class="w-6 h-6 text-bk-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Alertas Técnicos</p>
+          <p class="text-3xl font-bold text-bk-orange mt-1" x-text="stats.warnings_count">—</p>
+          <p class="text-xs text-gray-400 mt-1">Requerem verificação</p>
+        </div>
+        <div class="bg-orange-50 rounded-lg p-2.5">
+          <svg class="w-6 h-6 text-bk-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Relatórios Gerados</p>
+          <p class="text-3xl font-bold text-gray-600 mt-1" x-text="stats.reports_count">—</p>
+          <p class="text-xs text-gray-400 mt-1">PDF/HTML exportados</p>
+        </div>
+        <div class="bg-gray-100 rounded-lg p-2.5">
+          <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Alerta de responsabilidade técnica ────────────────────────────── -->
+  <div class="alert-technical mb-6">
+    <div class="flex items-start gap-3">
+      <svg class="w-5 h-5 text-bk-orange flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <div>
+        <p class="text-sm font-semibold text-orange-800">Aviso de Responsabilidade Técnica</p>
+        <p class="text-xs text-orange-700 mt-1">
+          Os cálculos, dimensionamentos e sugestões de parametrização gerados por este sistema
+          são sugestões de engenharia baseadas nos dados informados. A validação técnica e aprovação final
+          são de responsabilidade exclusiva do <strong>engenheiro eletricista habilitado (CREA)</strong>.
+          Utilize os resultados como ponto de partida para análise — não como parametrização final definitiva.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Ações rápidas ───────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+    <!-- Novo projeto -->
+    <div class="bg-bk-navy rounded-lg p-5 text-white">
+      <h3 class="font-semibold text-base mb-2">Novo Estudo</h3>
+      <p class="text-blue-200 text-xs mb-4">Inicie um novo estudo de proteção, curto-circuito ou dimensionamento.</p>
+      <a href="/projects/new" class="inline-flex items-center gap-2 bg-white text-bk-navy px-4 py-2 rounded-md text-sm font-semibold hover:bg-blue-50 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Criar Projeto
+      </a>
+    </div>
+
+    <!-- Projetos recentes -->
+    <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-bk-navy text-sm">Projetos Recentes</h3>
+        <a href="/projects/" class="text-xs text-bk-blue hover:underline">Ver todos →</a>
+      </div>
+      <div x-show="projects.length === 0" class="text-center py-6 text-gray-400">
+        <svg class="w-8 h-8 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-xs">Nenhum projeto cadastrado ainda.</p>
+        <a href="/projects/new" class="text-bk-blue text-xs hover:underline">Criar o primeiro projeto →</a>
+      </div>
+      <template x-for="proj in projects" :key="proj.id">
+        <div class="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+          <div>
+            <p class="text-sm font-medium text-gray-800" x-text="proj.name"></p>
+            <p class="text-xs text-gray-400 font-mono" x-text="'#' + proj.project_number"></p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="{
+                    'bg-blue-100 text-blue-700': proj.status === 'em_elaboracao',
+                    'bg-yellow-100 text-yellow-700': proj.status === 'em_revisao',
+                    'bg-green-100 text-green-700': proj.status === 'aprovado',
+                    'bg-gray-100 text-gray-500': proj.status === 'arquivado'
+                  }"
+                  x-text="proj.status.replace('_', ' ')">
+            </span>
+            <a :href="'/projects/' + proj.id" class="text-bk-blue text-xs hover:underline">Abrir</a>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ─── Escopo técnico do sistema ─────────────────────────────────────── -->
+  <div class="bg-white rounded-lg border border-bk-border p-5 shadow-sm">
+    <h3 class="font-semibold text-bk-navy text-sm mb-4">Capacidades do Sistema — BK_Estudo_Proteção v2</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {% set capabilities = [
+        ('Curto-circuito IEC 60909', 'Trifásico, bifásico, monofásico à terra', 'text-bk-green'),
+        ('Corrente de Inrush', 'Transformadores — IEC 60076-1', 'text-bk-green'),
+        ('Análise de Flicker', 'Pst / Plt — IEC 61000-3-7', 'text-bk-green'),
+        ('Dimensionamento TC', 'IEC 61869-2 / NBR 6856', 'text-bk-green'),
+        ('Dimensionamento TP', 'IEC 61869-3 / NBR 6855', 'text-bk-green'),
+        ('Dimensionamento Disjuntor', 'IEC 62271-100', 'text-bk-green'),
+        ('Dimensionamento Seccionadora', 'IEC 62271-102', 'text-bk-green'),
+        ('Ajuste de Relés', 'Funções ANSI 50/51/87T/21...', 'text-bk-green'),
+        ('Coordenograma', 'Curvas IEC 60255-151 log-log', 'text-bk-green'),
+        ('Relatório PDF', 'Documento técnico profissional', 'text-bk-green'),
+        ('Export Excel', 'Resultados tabulados', 'text-bk-green'),
+        ('Rastreabilidade', 'Hipóteses e versão do algoritmo', 'text-bk-green'),
+      ] %}
+      {% for cap_name, cap_desc, cap_color in capabilities %}
+      <div class="bg-gray-50 rounded p-3 border border-gray-100">
+        <div class="flex items-center gap-1.5 mb-1">
+          <svg class="w-3.5 h-3.5 {{ cap_color }}" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+          </svg>
+          <p class="text-xs font-semibold text-gray-700">{{ cap_name }}</p>
+        </div>
+        <p class="text-xs text-gray-400">{{ cap_desc }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+function dashboard() {
+  return {
+    stats: { projects_active: 0, studies_calculated: 0, warnings_count: 0, reports_count: 0 },
+    projects: [],
+    async init() {
+      // Carrega estatísticas e projetos recentes via API
+      try {
+        const resp = await fetch('/projects/?format=json');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.projects = data.slice(0, 5);
+          this.stats.projects_active = data.filter(p => ['em_elaboracao', 'em_revisao'].includes(p.status)).length;
+        }
+      } catch(e) {
+        // API pode não estar disponível ainda — ok no primeiro acesso
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

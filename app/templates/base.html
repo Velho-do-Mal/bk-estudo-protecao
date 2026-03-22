@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ title | default('BK Estudo Proteção') }}{% endblock %} — BK_Estudo_Proteção v2</title>
+
+  <!-- Tailwind CSS via CDN (produção: usar build local) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'bk-navy': '#1a3a5c',
+            'bk-blue': '#2563eb',
+            'bk-orange': '#e07b39',
+            'bk-green': '#2d7a4f',
+            'bk-red': '#c0392b',
+            'bk-gray': '#f4f6f8',
+            'bk-border': '#d1d5db',
+          },
+          fontFamily: {
+            'mono': ['JetBrains Mono', 'Consolas', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- Fontes -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .tab-active { border-bottom: 3px solid #1a3a5c; color: #1a3a5c; font-weight: 600; }
+    .result-positive { color: #2d7a4f; font-weight: 600; }
+    .result-warning { color: #d97706; font-weight: 600; }
+    .result-danger { color: #c0392b; font-weight: 600; }
+    .data-badge-informado { background: #dbeafe; color: #1e40af; }
+    .data-badge-assumido { background: #fef3c7; color: #92400e; }
+    .data-badge-calculado { background: #d1fae5; color: #065f46; }
+    .data-badge-estimado { background: #ede9fe; color: #5b21b6; }
+    .engineering-table th { background: #1a3a5c; color: white; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .engineering-table td { font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+    .engineering-table tr:nth-child(even) { background: #f8fafc; }
+    .engineering-table tr:hover { background: #e8f0fe; }
+    .alert-technical { border-left: 4px solid #e07b39; background: #fff7ed; padding: 12px 16px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+    .alert-critical { border-left: 4px solid #c0392b; background: #fef2f2; }
+    .alert-info { border-left: 4px solid #2563eb; background: #eff6ff; }
+  </style>
+
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="h-full bg-bk-gray text-gray-800" x-data="{ sidebarOpen: true }">
+
+  <!-- ─── Navbar Superior ───────────────────────────────────────────────────── -->
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-bk-navy text-white h-14 flex items-center px-4 shadow-md">
+    <button @click="sidebarOpen = !sidebarOpen" class="mr-4 p-1 rounded hover:bg-blue-800 transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+
+    <!-- Logo e nome -->
+    <div class="flex items-center gap-3 flex-1">
+      <div class="bg-bk-orange rounded px-2 py-0.5 text-xs font-bold tracking-wider">BK</div>
+      <span class="font-semibold text-sm tracking-wide">Estudo de Proteção</span>
+      <span class="text-blue-300 text-xs ml-1">v2.0</span>
+    </div>
+
+    <!-- Status e usuário -->
+    <div class="flex items-center gap-4 text-sm">
+      {% if user is defined and user %}
+      <span class="text-blue-200">{{ user.full_name }}</span>
+      <span class="text-blue-300 text-xs">{{ user.role }}</span>
+      <a href="/auth/logout" class="bg-blue-800 hover:bg-blue-700 px-3 py-1 rounded text-xs transition">Sair</a>
+      {% else %}
+      <a href="/auth/login" class="bg-blue-800 hover:bg-blue-700 px-3 py-1 rounded text-xs transition">Login</a>
+      {% endif %}
+    </div>
+  </nav>
+
+  <div class="flex h-full pt-14">
+
+    <!-- ─── Sidebar ────────────────────────────────────────────────────────── -->
+    <aside class="fixed left-0 top-14 bottom-0 bg-white border-r border-bk-border shadow-sm transition-all duration-200 z-40"
+           :class="sidebarOpen ? 'w-56' : 'w-14'">
+      <nav class="flex flex-col py-4 overflow-hidden h-full">
+
+        <div class="px-3 mb-6">
+          <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold" x-show="sidebarOpen">Menu</p>
+        </div>
+
+        {% set nav_items = [
+          ('/', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
+          ('/projects/', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Projetos'),
+        ] %}
+
+        {% for href, icon_path, label in nav_items %}
+        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2.5 mx-2 rounded-md text-gray-600 hover:bg-blue-50 hover:text-bk-navy transition-colors group">
+          <svg class="w-5 h-5 flex-shrink-0 text-gray-400 group-hover:text-bk-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="{{ icon_path }}"/>
+          </svg>
+          <span class="text-sm font-medium whitespace-nowrap" x-show="sidebarOpen">{{ label }}</span>
+        </a>
+        {% endfor %}
+
+        <!-- Separador -->
+        <div class="border-t border-gray-100 my-4 mx-3"></div>
+
+        <a href="/docs" target="_blank" class="flex items-center gap-3 px-3 py-2.5 mx-2 rounded-md text-gray-500 hover:bg-gray-50 transition-colors group">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          <span class="text-xs whitespace-nowrap" x-show="sidebarOpen">API Docs</span>
+        </a>
+
+        <!-- Versão no rodapé do sidebar -->
+        <div class="mt-auto px-4 pb-4" x-show="sidebarOpen">
+          <div class="bg-gray-50 rounded p-2 text-center">
+            <p class="text-xs text-gray-400">BK_Estudo_Proteção</p>
+            <p class="text-xs font-mono text-gray-500">v2.0.0 | IEC 60909</p>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- ─── Conteúdo Principal ───────────────────────────────────────────── -->
+    <main class="flex-1 overflow-auto transition-all duration-200" :class="sidebarOpen ? 'ml-56' : 'ml-14'">
+
+      <!-- Breadcrumb / Header da página -->
+      {% block page_header %}
+      <div class="bg-white border-b border-bk-border px-6 py-4">
+        <h1 class="text-lg font-semibold text-bk-navy">{% block page_title %}{{ title | default('') }}{% endblock %}</h1>
+        {% block page_subtitle %}<p class="text-sm text-gray-500 mt-0.5">{% endblock %}</p>
+      </div>
+      {% endblock %}
+
+      <!-- Alertas globais (HTMX) -->
+      <div id="global-alerts" class="px-6 pt-2">
+        {% block global_alerts %}{% endblock %}
+      </div>
+
+      <!-- Conteúdo -->
+      <div class="px-6 py-4">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <!-- ─── Rodapé ───────────────────────────────────────────────────────────── -->
+  <footer class="fixed bottom-0 left-0 right-0 bg-white border-t border-bk-border py-1.5 px-6 flex items-center justify-between z-30">
+    <p class="text-xs text-gray-400">BK Engenharia e Tecnologia — BK_Estudo_Proteção v2.0</p>
+    <p class="text-xs text-gray-400 font-mono">Algoritmo: IEC 60909:2016 | Engine v{{ algorithm_version | default('1.0.0') }}</p>
+    <p class="text-xs text-bk-orange font-medium">⚠ Validação por engenheiro habilitado obrigatória</p>
+  </footer>
+
+  <!-- Toast de notificações (HTMX) -->
+  <div id="toast-container" class="fixed bottom-8 right-4 z-50 space-y-2"></div>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

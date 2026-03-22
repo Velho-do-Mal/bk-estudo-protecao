@@ -1,0 +1,54 @@
+# Variáveis de ambiente e credenciais — NUNCA commitar
+.env
+*.env
+.env.*
+!.env.example
+
+# Banco de dados local
+*.db
+*.sqlite
+*.sqlite3
+
+# Relatórios PDF gerados (só os arquivos gerados, não o código)
+app/reports/generated/
+/reports/
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Ambiente virtual
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+*.cache
+
+# Claude
+.claude/

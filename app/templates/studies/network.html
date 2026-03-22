@@ -1,0 +1,936 @@
+{% extends "base.html" %}
+{% block title %}{{ study.study_type }} — Rede Elétrica{% endblock %}
+{% block page_title %}{{ study.study_type }}{% endblock %}
+{% block page_subtitle %}Estudo de Curto-Circuito IEC 60909:2016 — {{ study.v_base_kv }} kV | {{ study.s_base_mva }} MVA | {{ study.frequency_hz }} Hz{% endblock %}
+
+{% block content %}
+<div x-data="networkGrid()" x-init="init()">
+
+  <!-- ─── Navegação do estudo ──────────────────────────────────────────────── -->
+  <div class="flex items-center gap-2 mb-4 text-sm">
+    <a href="/projects/{{ study.project_id }}"
+       class="text-gray-400 hover:text-bk-navy flex items-center gap-1 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+      </svg>
+      Voltar ao Projeto
+    </a>
+    <span class="text-gray-300">|</span>
+    <div class="flex gap-1 border-b border-gray-200 flex-1">
+      <a href="/studies/{{ study.id }}/system-data"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition border-b-2 border-transparent">
+        Parâmetros
+      </a>
+      <span class="px-4 py-2 text-xs font-semibold text-bk-navy border-b-2 border-bk-navy bg-blue-50 rounded-t-md">
+        Rede / Cálculo
+      </span>
+      <a href="/studies/{{ study.id }}/equipment"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition border-b-2 border-transparent">
+        Equipamentos / Relés
+      </a>
+      <a href="/studies/{{ study.id }}/diagram"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition border-b-2 border-transparent">
+        Diagrama Unifilar
+      </a>
+      <a href="/reports/{{ study.id }}/html" target="_blank"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition border-b-2 border-transparent">
+        Relatório
+      </a>
+      <a href="/reports/{{ study.id }}/pdf" target="_blank"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-t-md transition border-b-2 border-transparent">
+        PDF
+      </a>
+    </div>
+  </div>
+
+  <!-- ─── Painel de Impedância de Fonte (Concessionária) ──────────────────── -->
+  <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+    <div class="flex items-start gap-4">
+      <div class="flex-shrink-0">
+        <svg class="w-5 h-5 text-bk-blue mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <p class="text-xs font-semibold text-bk-navy mb-3">
+          Fonte / Concessionária — Ponto de Entrega (P0)
+          <span class="font-normal text-gray-500 ml-2">Esta impedância equivalente é somada cumulativamente a todos os trechos</span>
+        </p>
+        <div class="grid grid-cols-5 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              Tensão [kV]
+            </label>
+            <input type="number" x-model.number="source.v_kv" step="0.1"
+                   class="w-full border border-blue-200 bg-white rounded px-2 py-1.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              Scc concessionária [MVA]
+              <span class="text-gray-400">(opcional)</span>
+            </label>
+            <input type="number" x-model.number="source.scc_mva" step="1" min="0"
+                   @input="calcZFromScc()"
+                   placeholder="ex: 500"
+                   class="w-full border border-blue-200 bg-white rounded px-2 py-1.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              R_fonte [Ω] <span class="text-gray-400">(seq. positiva)</span>
+            </label>
+            <input type="number" x-model.number="source.z_r" step="0.0001"
+                   class="w-full border border-blue-200 bg-white rounded px-2 py-1.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              X_fonte [Ω] <span class="text-gray-400">(seq. positiva)</span>
+            </label>
+            <input type="number" x-model.number="source.z_x" step="0.0001"
+                   class="w-full border border-blue-200 bg-white rounded px-2 py-1.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">|Z_fonte| [Ω]</label>
+            <div class="w-full border border-blue-100 bg-blue-50 rounded px-2 py-1.5 text-xs font-mono font-semibold text-bk-navy"
+                 x-text="zFonteMag.toFixed(4)"></div>
+          </div>
+        </div>
+        <div class="mt-2 text-xs text-blue-600">
+          <span x-show="source.scc_mva > 0">
+            Calculado: Zcc = V²/Scc = <span x-text="source.v_kv"></span>² / <span x-text="source.scc_mva"></span> = <span x-text="zFonteMag.toFixed(4)"></span> Ω
+            (X/R = 10 assumido — típico rede de distribuição MT)
+          </span>
+          <span x-show="!source.scc_mva || source.scc_mva <= 0" class="text-gray-400">
+            Informe Scc da concessionária OU os valores R e X diretamente
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Toolbar ─────────────────────────────────────────────────────────── -->
+  <div class="bg-white border border-bk-border rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
+    <button @click="saveAndCalculate()"
+            :disabled="calculating || saving"
+            class="flex items-center gap-2 bg-bk-navy text-white px-5 py-2 rounded-md text-sm font-semibold hover:bg-blue-900 transition shadow-sm disabled:opacity-60">
+      <svg class="w-4 h-4" :class="{ 'animate-spin': calculating }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      <span x-text="calculating ? 'Calculando...' : saving ? 'Salvando...' : 'CALCULAR'"></span>
+    </button>
+
+    <button @click="saveElements()"
+            :disabled="saving"
+            class="flex items-center gap-1.5 bg-white border border-bk-border text-gray-700 px-4 py-2 rounded-md text-xs font-semibold hover:bg-gray-50 transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+      </svg>
+      <span x-text="saving ? 'Salvando...' : 'Salvar'"></span>
+    </button>
+
+    <div class="w-px h-6 bg-gray-200"></div>
+
+    <button @click="addRow()"
+            class="flex items-center gap-1 bg-white border border-bk-border text-gray-600 px-3 py-2 rounded-md text-xs font-medium hover:bg-gray-50 transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Novo Trecho
+    </button>
+
+    <button @click="exportCSV()"
+            class="flex items-center gap-1 bg-white border border-bk-border text-gray-600 px-3 py-2 rounded-md text-xs font-medium hover:bg-gray-50 transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      CSV
+    </button>
+
+    <div class="ml-auto flex items-center gap-3">
+      <span x-show="savedMsg" x-cloak class="text-xs text-green-600 font-medium">Salvo com sucesso</span>
+      <template x-if="lastCalculated">
+        <div class="flex items-center gap-1.5 text-xs text-gray-500">
+          <svg class="w-3.5 h-3.5 text-bk-green" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          Calculado <span x-text="lastCalculated"></span>
+        </div>
+      </template>
+      <template x-if="globalWarnings.length > 0">
+        <button @click="showWarnings = !showWarnings"
+                class="flex items-center gap-1.5 text-xs text-bk-orange">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          <span x-text="globalWarnings.length + ' alertas'"></span>
+        </button>
+      </template>
+    </div>
+  </div>
+
+  <!-- Alertas -->
+  <div x-show="showWarnings && globalWarnings.length > 0" x-transition class="mb-3 space-y-1">
+    <template x-for="(w, i) in globalWarnings" :key="i">
+      <div class="alert-technical text-xs" x-text="w"></div>
+    </template>
+  </div>
+
+  <!-- ─── Grade de entrada de dados ────────────────────────────────────────── -->
+  <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+    <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+      <p class="text-xs font-semibold text-gray-600">
+        Trechos da Rede (de P0 = fonte até os pontos finais)
+      </p>
+      <p class="text-xs text-gray-400">
+        As impedâncias são ACUMULATIVAS de P0 até cada ponto. Linhas/cabos em sequência radial.
+      </p>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full engineering-table text-left" style="min-width: 1400px;">
+        <thead>
+          <tr>
+            <th class="px-2 py-2 w-8 text-center sticky left-0 bg-bk-navy">#</th>
+            <th class="px-2 py-2 w-20">Código</th>
+            <th class="px-2 py-2 w-24">Tipo</th>
+            <th class="px-2 py-2 w-32">Descrição / Ponto</th>
+            <th class="px-2 py-2 w-16">V [kV]</th>
+            <th class="px-2 py-2 w-16">L [km]</th>
+            <th class="px-2 py-2 w-24">Condutor</th>
+            <th class="px-2 py-2 w-16">R₁ [Ω/km]</th>
+            <th class="px-2 py-2 w-16">X₁ [Ω/km]</th>
+            <th class="px-2 py-2 w-20">Trafo [kVA]</th>
+            <th class="px-2 py-2 w-14">%Z</th>
+            <th class="px-2 py-2 w-16">Vsec [kV]</th>
+            <!-- Resultados acumulativos -->
+            <th class="px-2 py-2 w-20 bg-indigo-700 text-white text-center">Z₁ acum [Ω]</th>
+            <th class="px-2 py-2 w-20 bg-bk-green text-white text-center">Icc3φ [kA]</th>
+            <th class="px-2 py-2 w-20 bg-bk-green text-white text-center">Icc2φ [kA]</th>
+            <th class="px-2 py-2 w-20 bg-bk-green text-white text-center">Icc1φ [kA]</th>
+            <th class="px-2 py-2 w-20 bg-bk-green text-white text-center">Ip [kA]</th>
+            <th class="px-2 py-2 w-8 text-center">✕</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(row, idx) in rows" :key="row._uid">
+            <tr :class="{ 'bg-yellow-50': row._has_warning, 'opacity-50': !row.is_active }">
+
+              <td class="px-2 py-1 text-center text-gray-400 text-xs sticky left-0 bg-white border-r border-gray-100"
+                  x-text="idx + 1"></td>
+
+              <td class="px-1 py-1">
+                <input type="text" x-model="row.code"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       :placeholder="'P' + (idx+1)">
+              </td>
+
+              <td class="px-1 py-1">
+                <select x-model="row.element_type"
+                        class="w-full border border-gray-200 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue">
+                  <option value="linha">Linha aérea</option>
+                  <option value="cabo">Cabo subterrâneo</option>
+                  <option value="alimentador">Alimentador</option>
+                  <option value="transformador">Transformador</option>
+                  <option value="gerador">Gerador</option>
+                  <option value="motor">Motor</option>
+                  <option value="barra">Barra / Barramento</option>
+                </select>
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="text" x-model="row.name"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue"
+                       placeholder="ex: Trecho 1, SE Principal">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.voltage_kv" step="0.1" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       :placeholder="studyParams.v_base_kv">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.length_km" step="0.001" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="0.000">
+              </td>
+
+              <!-- Condutor: text com sugestão do banco -->
+              <td class="px-1 py-1">
+                <input type="text" x-model="row.cable_name"
+                       @change="lookupCable(row)"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="ex: 95CAL, CAA-185">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.r1_ohm_km" step="0.00001" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="0.000">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="0.000">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.trafo_kva" step="1" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="0">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.trafo_z_percent" step="0.01" min="0" max="30"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="6.0">
+              </td>
+
+              <td class="px-1 py-1">
+                <input type="number" x-model.number="row.trafo_voltage_sec_kv" step="0.01" min="0"
+                       class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
+                       placeholder="0.380">
+              </td>
+
+              <!-- Resultados (readonly) -->
+              <td class="px-2 py-1 text-center bg-indigo-50">
+                <span class="font-mono text-xs font-semibold text-indigo-800"
+                      x-text="row._z1_mag ? row._z1_mag.toFixed(4) : '—'"></span>
+              </td>
+              <td class="px-2 py-1 text-center">
+                <span class="font-mono text-xs font-semibold"
+                      :class="(row._icc3ph||0) > 50 ? 'result-danger' : (row._icc3ph||0) > 20 ? 'result-warning' : 'result-positive'"
+                      x-text="row._icc3ph ? row._icc3ph.toFixed(3) : '—'"></span>
+              </td>
+              <td class="px-2 py-1 text-center">
+                <span class="font-mono text-xs text-gray-600" x-text="row._icc2ph ? row._icc2ph.toFixed(3) : '—'"></span>
+              </td>
+              <td class="px-2 py-1 text-center">
+                <span class="font-mono text-xs text-gray-600" x-text="row._icc1ph ? row._icc1ph.toFixed(3) : '—'"></span>
+              </td>
+              <td class="px-2 py-1 text-center">
+                <span class="font-mono text-xs text-gray-600" x-text="row._icc_peak ? row._icc_peak.toFixed(3) : '—'"></span>
+              </td>
+
+              <td class="px-2 py-1 text-center">
+                <button @click="removeRow(idx)" class="text-gray-300 hover:text-bk-red transition text-xs font-bold">✕</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="border-t border-gray-100 px-4 py-2 flex items-center justify-between bg-gray-50">
+      <p class="text-xs text-gray-400 font-mono">
+        <span x-text="rows.filter(r=>r.is_active).length"></span> trechos ativos
+        <span class="ml-2 text-blue-500">P0 (fonte) → P1 → P2 → ... → Pn (Z acumulada a cada ponto)</span>
+      </p>
+      <button @click="addRow()" class="text-xs text-bk-blue hover:underline">+ Adicionar linha</button>
+    </div>
+  </div>
+
+  <!-- ─── Painel de resultados (após cálculo) ──────────────────────────────── -->
+  <div x-show="hasResults" x-transition class="mt-6 space-y-4">
+
+    <!-- Sub-abas de resultado -->
+    <div class="border-b border-gray-200">
+      <nav class="flex gap-0 -mb-px">
+        <button @click="resultTab = 'curto'"
+                :class="resultTab === 'curto' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                class="px-5 py-2.5 border-b-2 text-sm transition-colors">
+          Curto-Circuito
+        </button>
+        <button @click="resultTab = 'tc_tp'"
+                :class="resultTab === 'tc_tp' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                class="px-5 py-2.5 border-b-2 text-sm transition-colors">
+          Dimensionamento TC / TP
+          <span x-show="ctResults.length > 0"
+                class="ml-1 bg-bk-navy text-white text-xs px-1.5 py-0.5 rounded-full"
+                x-text="ctResults.length"></span>
+        </button>
+        <button @click="resultTab = 'disjuntor'"
+                :class="resultTab === 'disjuntor' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                class="px-5 py-2.5 border-b-2 text-sm transition-colors">
+          Disjuntores / Seccionadoras
+          <span x-show="breakerResults.length > 0"
+                class="ml-1 bg-bk-navy text-white text-xs px-1.5 py-0.5 rounded-full"
+                x-text="breakerResults.length"></span>
+        </button>
+        <button @click="resultTab = 'reles'"
+                :class="resultTab === 'reles' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                class="px-5 py-2.5 border-b-2 text-sm transition-colors">
+          Ajuste de Relés
+          <span x-show="relayResults.length > 0"
+                class="ml-1 bg-bk-navy text-white text-xs px-1.5 py-0.5 rounded-full"
+                x-text="relayResults.length"></span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- ABA: Curto-Circuito -->
+    <div x-show="resultTab === 'curto'" class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5 flex items-center justify-between">
+        <h3 class="text-white font-semibold text-sm">Resultados — Curto-Circuito IEC 60909:2016</h3>
+        <div class="flex gap-3">
+          <span class="text-blue-200 text-xs">Impedâncias acumuladas de P0 (fonte) até cada ponto</span>
+          <a :href="'/reports/' + studyId + '/html'" target="_blank"
+             class="text-xs text-blue-200 hover:text-white transition">Relatório →</a>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Ponto</th>
+              <th class="px-3 py-2">Barra</th>
+              <th class="px-3 py-2">V [kV]</th>
+              <th class="px-3 py-2">R₁ acum [Ω]</th>
+              <th class="px-3 py-2">X₁ acum [Ω]</th>
+              <th class="px-3 py-2">|Z₁| acum [Ω]</th>
+              <th class="px-3 py-2">Icc3φ [kA]</th>
+              <th class="px-3 py-2">Icc2φ [kA]</th>
+              <th class="px-3 py-2">Icc1φ [kA]</th>
+              <th class="px-3 py-2">Ip [kA]</th>
+              <th class="px-3 py-2">κ</th>
+              <th class="px-3 py-2">Icc BT [kA]</th>
+              <th class="px-3 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(r, i) in calcResults" :key="i">
+              <tr>
+                <td class="px-3 py-1.5 font-mono font-semibold text-bk-navy" x-text="r.element_code"></td>
+                <td class="px-3 py-1.5 font-mono text-gray-500" x-text="r.bus_to || '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="r.voltage_kv ? r.voltage_kv.toFixed(1) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono text-indigo-700" x-text="r.z1_r_ohm ? r.z1_r_ohm.toFixed(4) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono text-indigo-700" x-text="r.z1_x_ohm ? r.z1_x_ohm.toFixed(4) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono font-bold text-indigo-800" x-text="r.z1_mag_ohm ? r.z1_mag_ohm.toFixed(4) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono font-semibold"
+                    :class="r.icc_3ph_ka > 50 ? 'result-danger' : r.icc_3ph_ka > 20 ? 'result-warning' : 'result-positive'"
+                    x-text="r.icc_3ph_ka ? r.icc_3ph_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="r.icc_2ph_ka ? r.icc_2ph_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="r.icc_1ph_ka ? r.icc_1ph_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono font-semibold text-red-600" x-text="r.icc_peak_ka ? r.icc_peak_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="r.kappa_factor ? r.kappa_factor.toFixed(2) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono text-gray-500" x-text="r.icc_3ph_lv_ka ? r.icc_3ph_lv_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5">
+                  <span x-show="r.is_valid" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">OK</span>
+                  <span x-show="!r.is_valid" class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">Erro</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <!-- Aviso técnico obrigatório -->
+      <div class="border-t border-gray-100 px-4 py-3 bg-amber-50">
+        <p class="text-xs text-amber-700">
+          <strong>AVISO TÉCNICO:</strong> Resultados calculados pelo método radial IEC 60909:2016 com fator
+          c = <span x-text="studyParams.voltage_factor_c"></span>.
+          Redes malhadas ou com múltiplas fontes requerem verificação adicional.
+          Responsabilidade da análise crítica é do engenheiro habilitado (CREA).
+        </p>
+      </div>
+    </div>
+
+    <!-- ABA: Dimensionamento TC / TP -->
+    <div x-show="resultTab === 'tc_tp'" class="space-y-4">
+
+      <!-- TC -->
+      <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+        <div class="bg-bk-navy px-4 py-2.5">
+          <h3 class="text-white font-semibold text-sm">Transformadores de Corrente (TC) — ABNT NBR IEC 61869-2:2014</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full engineering-table">
+            <thead>
+              <tr>
+                <th class="px-3 py-2">Elemento</th>
+                <th class="px-3 py-2">Designação ABNT Completa</th>
+                <th class="px-3 py-2">Relação [A]</th>
+                <th class="px-3 py-2">Classe</th>
+                <th class="px-3 py-2">ALF req.</th>
+                <th class="px-3 py-2">ALF adot.</th>
+                <th class="px-3 py-2">Potência [VA]</th>
+                <th class="px-3 py-2">NBI [kV]</th>
+                <th class="px-3 py-2">Vk [V]</th>
+                <th class="px-3 py-2">Satur.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(ct, i) in ctResults" :key="i">
+                <tr>
+                  <td class="px-3 py-1.5 font-mono font-semibold text-bk-navy" x-text="ct.element_code"></td>
+                  <td class="px-3 py-1.5 font-mono text-xs font-semibold text-indigo-800" x-text="ct.designation_string || '—'"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="ct.ip_ratio_string"></td>
+                  <td class="px-3 py-1.5 font-mono font-semibold" x-text="ct.accuracy_class"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="ct.alf_required ? ct.alf_required.toFixed(1) : '—'"></td>
+                  <td class="px-3 py-1.5 font-mono font-semibold" x-text="ct.alf_adopted"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="ct.sn_tc_va + ' VA'"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="ct.bil_kv ? ct.bil_kv + ' kV' : '—'"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="ct.vk_adopted_v ? ct.vk_adopted_v.toFixed(0) + ' V' : '—'"></td>
+                  <td class="px-3 py-1.5">
+                    <span x-show="ct.saturation_check_ok" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">OK</span>
+                    <span x-show="!ct.saturation_check_ok" class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">Saturação!</span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TP -->
+      <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+        <div class="bg-bk-navy px-4 py-2.5">
+          <h3 class="text-white font-semibold text-sm">Transformadores de Potencial (TP) — ABNT NBR IEC 61869-3:2016</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full engineering-table">
+            <thead>
+              <tr>
+                <th class="px-3 py-2">Elemento</th>
+                <th class="px-3 py-2">Designação ABNT Completa</th>
+                <th class="px-3 py-2">Relação [V]</th>
+                <th class="px-3 py-2">Classe</th>
+                <th class="px-3 py-2">Potência [VA]</th>
+                <th class="px-3 py-2">Ktf</th>
+                <th class="px-3 py-2">NBI [kV]</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(vt, i) in vtResults" :key="i">
+                <tr>
+                  <td class="px-3 py-1.5 font-mono font-semibold text-bk-navy" x-text="vt.element_code"></td>
+                  <td class="px-3 py-1.5 font-mono text-xs font-semibold text-indigo-800" x-text="vt.designation_string || '—'"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="vt.ratio_string + ' V'"></td>
+                  <td class="px-3 py-1.5 font-mono font-semibold" x-text="vt.accuracy_class"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="vt.sn_vt_va + ' VA'"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="vt.ktf_value"></td>
+                  <td class="px-3 py-1.5 font-mono" x-text="vt.bil_kv ? vt.bil_kv + ' kV' : '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="alert-technical text-xs">
+        <strong>AVISO:</strong> Especificações são sugestões iniciais de engenharia.
+        Valide burden real, Rct e Vk com o fabricante antes da aquisição.
+        ABNT NBR IEC 61869-2 e 61869-3 — Responsabilidade técnica do engenheiro CREA.
+      </div>
+    </div>
+
+    <!-- ABA: Disjuntores -->
+    <div x-show="resultTab === 'disjuntor'" class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5">
+        <h3 class="text-white font-semibold text-sm">Dimensionamento de Disjuntores — ABNT NBR IEC 62271-100</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Elemento</th>
+              <th class="px-3 py-2">Tipo</th>
+              <th class="px-3 py-2">V nominal [kV]</th>
+              <th class="px-3 py-2">In [A]</th>
+              <th class="px-3 py-2">Icc ruptura [kA]</th>
+              <th class="px-3 py-2">Icc fecha [kA]</th>
+              <th class="px-3 py-2">Icc curta dur. [kA]</th>
+              <th class="px-3 py-2">Dur. curta [s]</th>
+              <th class="px-3 py-2">V OK</th>
+              <th class="px-3 py-2">I OK</th>
+              <th class="px-3 py-2">Rupt. OK</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(br, i) in breakerResults" :key="i">
+              <tr>
+                <td class="px-3 py-1.5 font-mono font-semibold text-bk-navy" x-text="br.element_code"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.device_type"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.voltage_class_kv"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.nominal_current_a ? br.nominal_current_a.toFixed(0) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono font-semibold text-bk-red" x-text="br.breaking_current_ka ? br.breaking_current_ka.toFixed(1) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.making_current_ka ? br.making_current_ka.toFixed(1) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.short_time_current_ka ? br.short_time_current_ka.toFixed(1) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="br.short_time_duration_s"></td>
+                <td class="px-3 py-1.5">
+                  <span x-show="br.voltage_ok" class="text-green-600 font-bold">✓</span>
+                  <span x-show="!br.voltage_ok" class="text-red-600 font-bold">✗</span>
+                </td>
+                <td class="px-3 py-1.5">
+                  <span x-show="br.current_ok" class="text-green-600 font-bold">✓</span>
+                  <span x-show="!br.current_ok" class="text-red-600 font-bold">✗</span>
+                </td>
+                <td class="px-3 py-1.5">
+                  <span x-show="br.breaking_ok" class="text-green-600 font-bold">✓</span>
+                  <span x-show="!br.breaking_ok" class="text-red-600 font-bold">✗</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ABA: Relés -->
+    <div x-show="resultTab === 'reles'" class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5">
+        <h3 class="text-white font-semibold text-sm">Ajuste Sugerido de Relés — ABNT NBR IEC 60255-151</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Elemento</th>
+              <th class="px-3 py-2">Função ANSI</th>
+              <th class="px-3 py-2">Pickup prim [kA]</th>
+              <th class="px-3 py-2">Pickup sec [A]</th>
+              <th class="px-3 py-2">TMS</th>
+              <th class="px-3 py-2">Curva</th>
+              <th class="px-3 py-2">t @ Icc3φ [s]</th>
+              <th class="px-3 py-2">t @ Icc2φ [s]</th>
+              <th class="px-3 py-2">t @ Icc1φ [s]</th>
+              <th class="px-3 py-2">Sensib.</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(rel, i) in relayResults" :key="i">
+              <tr>
+                <td class="px-3 py-1.5 font-mono font-semibold text-bk-navy" x-text="rel.element_code"></td>
+                <td class="px-3 py-1.5 font-mono font-bold text-bk-blue" x-text="rel.ansi_function"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.pickup_primary_ka ? rel.pickup_primary_ka.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.pickup_secondary_a ? rel.pickup_secondary_a.toFixed(2) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono font-semibold" x-text="rel.tms_suggested ? rel.tms_suggested.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.curve_type"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.t_at_icc_3ph_s !== null && rel.t_at_icc_3ph_s !== undefined ? rel.t_at_icc_3ph_s.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.t_at_icc_2ph_s !== null && rel.t_at_icc_2ph_s !== undefined ? rel.t_at_icc_2ph_s.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5 font-mono" x-text="rel.t_at_icc_1ph_s !== null && rel.t_at_icc_1ph_s !== undefined ? rel.t_at_icc_1ph_s.toFixed(3) : '—'"></td>
+                <td class="px-3 py-1.5">
+                  <span x-show="rel.sensitivity_ok" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">OK</span>
+                  <span x-show="!rel.sensitivity_ok" class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">Insens.</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="px-4 py-3 border-t border-gray-100 bg-amber-50">
+        <p class="text-xs text-amber-700">
+          <strong>AVISO:</strong> Ajustes sugeridos são ponto de partida de engenharia.
+          Coordenação final deve ser verificada graficamente no coordenograma (TCC log-log).
+          ABNT NBR IEC 60255-151. Responsabilidade técnica do engenheiro CREA.
+        </p>
+      </div>
+    </div>
+
+  </div><!-- /hasResults -->
+
+</div>
+
+<script>
+function networkGrid() {
+  return {
+    studyId: '{{ study.id }}',
+
+    // Parâmetros do estudo (vindos do banco)
+    studyParams: {
+      v_base_kv: {{ study.v_base_kv or 13.8 }},
+      s_base_mva: {{ study.s_base_mva or 100 }},
+      frequency_hz: {{ study.frequency_hz or 60 }},
+      fault_time_s: {{ study.fault_time_s or 0.5 }},
+      voltage_factor_c: {{ study.voltage_factor_c or 1.10 }},
+      conductor_temp_c: {{ study.conductor_temp_c or 20 }},
+    },
+
+    // Fonte / concessionária
+    source: {
+      v_kv: {{ study.v_base_kv or 13.8 }},
+      scc_mva: {{ study.short_circuit_mva_source or 0 }},
+      z_r: {{ study.z_source_r_ohm or 0 }},
+      z_x: {{ study.z_source_x_ohm or 0 }},
+    },
+
+    // Estado
+    rows: [],
+    calcResults: [],
+    ctResults: [],
+    vtResults: [],
+    breakerResults: [],
+    relayResults: [],
+    globalWarnings: [],
+    hasResults: false,
+    calculating: false,
+    saving: false,
+    savedMsg: false,
+    lastCalculated: null,
+    showWarnings: false,
+    resultTab: 'curto',
+
+    get zFonteMag() {
+      const r = parseFloat(this.source.z_r) || 0;
+      const x = parseFloat(this.source.z_x) || 0;
+      return Math.sqrt(r*r + x*x);
+    },
+
+    calcZFromScc() {
+      const scc = parseFloat(this.source.scc_mva) || 0;
+      const v = parseFloat(this.source.v_kv) || this.studyParams.v_base_kv;
+      if (scc > 0 && v > 0) {
+        const zcc = (v * v) / scc;
+        const angle = Math.atan(10.0);  // X/R = 10
+        this.source.z_r = parseFloat((zcc * Math.cos(angle)).toFixed(6));
+        this.source.z_x = parseFloat((zcc * Math.sin(angle)).toFixed(6));
+      }
+    },
+
+    init() {
+      const existing = {{ elements | tojson | safe }};
+      if (existing && existing.length > 0) {
+        this.rows = existing.map((e, i) => this.elemToRow(e, i));
+      } else {
+        // Grade padrão: 5 linhas iniciais
+        for (let i = 0; i < 5; i++) this.addRow();
+      }
+    },
+
+    elemToRow(e, i) {
+      return {
+        _uid: e.id || (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)),
+        code: e.code || `P${i+1}`,
+        element_type: e.element_type || 'linha',
+        name: e.name || '',
+        bus_from: e.bus_from || `P${i}`,
+        bus_to: e.bus_to || `P${i+1}`,
+        voltage_kv: e.voltage_kv || this.studyParams.v_base_kv,
+        length_km: e.length_km || 0,
+        cable_name: e.cable_name || '',
+        r1_ohm_km: e.r1_ohm_km || 0,
+        x1_ohm_km: e.x1_ohm_km || 0,
+        r0_ohm_km: e.r0_ohm_km || null,
+        x0_ohm_km: e.x0_ohm_km || null,
+        trafo_kva: e.trafo_kva || 0,
+        trafo_z_percent: e.trafo_z_percent || 0,
+        trafo_connection: e.trafo_connection || 'Yg-Yg',
+        trafo_voltage_sec_kv: e.trafo_voltage_sec_kv || 0,
+        gen_s_sub_mva: e.gen_s_sub_mva || 0,
+        gen_xpp_percent: e.gen_xpp_percent || 0,
+        motor_s_mva: e.motor_s_mva || 0,
+        motor_xpp_percent: e.motor_xpp_percent || 0,
+        is_active: e.is_active !== false,
+        _icc3ph: null, _icc2ph: null, _icc1ph: null, _icc_peak: null,
+        _z1_mag: null, _has_warning: false,
+      };
+    },
+
+    addRow() {
+      const n = this.rows.length;
+      this.rows.push({
+        _uid: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36),
+        code: `P${n+1}`, element_type: 'linha', name: '',
+        bus_from: `P${n}`, bus_to: `P${n+1}`,
+        voltage_kv: this.studyParams.v_base_kv, length_km: 0,
+        cable_name: '', r1_ohm_km: 0, x1_ohm_km: 0, r0_ohm_km: null, x0_ohm_km: null,
+        trafo_kva: 0, trafo_z_percent: 0, trafo_connection: 'Yg-Yg', trafo_voltage_sec_kv: 0,
+        gen_s_sub_mva: 0, gen_xpp_percent: 0, motor_s_mva: 0, motor_xpp_percent: 0,
+        is_active: true,
+        _icc3ph: null, _icc2ph: null, _icc1ph: null, _icc_peak: null,
+        _z1_mag: null, _has_warning: false,
+      });
+    },
+
+    removeRow(idx) { this.rows.splice(idx, 1); },
+
+    // Busca condutor no banco de dados de cabos
+    async lookupCable(row) {
+      if (!row.cable_name) return;
+      try {
+        const resp = await fetch(`/api/cables/?group=&conductor_type=`);
+        // Busca por nome exato
+        const resp2 = await fetch(`/api/cables/search?name=${encodeURIComponent(row.cable_name)}`);
+        if (resp2.ok) {
+          const cable = await resp2.json();
+          if (cable && cable.r1_ohm_km) {
+            row.r1_ohm_km = cable.r1_ohm_km;
+            row.x1_ohm_km = cable.x1_ohm_km;
+            if (cable.r0_ohm_km) row.r0_ohm_km = cable.r0_ohm_km;
+            if (cable.x0_ohm_km) row.x0_ohm_km = cable.x0_ohm_km;
+          }
+        }
+      } catch(e) { /* ignora */ }
+    },
+
+    // Auto-numera bus_from/bus_to sequencialmente
+    _assignBuses() {
+      this.rows.forEach((row, i) => {
+        if (!row.bus_from || row.bus_from.startsWith('P')) row.bus_from = `P${i}`;
+        if (!row.bus_to || row.bus_to.startsWith('P')) row.bus_to = `P${i+1}`;
+      });
+    },
+
+    async saveElements() {
+      this.saving = true;
+      this._assignBuses();
+      try {
+        const resp = await fetch(`/api/studies/${this.studyId}/elements`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            elements: this.rows.filter(r => r.is_active),
+            z_source_r_ohm: this.source.z_r,
+            z_source_x_ohm: this.source.z_x,
+            scc_mva: this.source.scc_mva || null,
+          }),
+        });
+        if (resp.ok) {
+          this.savedMsg = true;
+          setTimeout(() => this.savedMsg = false, 3000);
+        } else {
+          alert('Erro ao salvar. Verifique sua conexão.');
+        }
+      } catch(e) {
+        alert('Erro ao salvar: ' + e.message);
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async saveAndCalculate() {
+      await this.saveElements();
+      await this.runCalculation();
+    },
+
+    async runCalculation() {
+      const activeRows = this.rows.filter(r =>
+        r.is_active && (
+          parseFloat(r.length_km || 0) > 0 ||
+          parseFloat(r.trafo_kva || 0) > 0 ||
+          parseFloat(r.gen_s_sub_mva || 0) > 0 ||
+          parseFloat(r.motor_s_mva || 0) > 0 ||
+          parseFloat(r.r1_ohm_km || 0) > 0
+        )
+      );
+      if (activeRows.length === 0) {
+        alert('Nenhum trecho com dados para calcular. Preencha comprimento, impedâncias ou kVA do transformador.');
+        return;
+      }
+
+      this.calculating = true;
+      this.globalWarnings = [];
+      this._assignBuses();
+
+      const payload = {
+        study_id: this.studyId,
+        system: {
+          s_base_mva: this.studyParams.s_base_mva,
+          v_base_kv: this.studyParams.v_base_kv,
+          frequency_hz: this.studyParams.frequency_hz,
+          fault_time_s: this.studyParams.fault_time_s,
+          z_source_r_ohm: parseFloat(this.source.z_r) || 0,
+          z_source_x_ohm: parseFloat(this.source.z_x) || 0,
+          primary_connection: 'Yg',
+          k_generator: 1.0,
+          k_motor: 1.0,
+          voltage_factor_c: this.studyParams.voltage_factor_c,
+          conductor_temp_c: this.studyParams.conductor_temp_c,
+          underground_group_factor: 1.0,
+        },
+        elements: activeRows.map(r => ({
+          code: r.code,
+          element_type: r.element_type,
+          bus_from: r.bus_from,
+          bus_to: r.bus_to,
+          voltage_kv: parseFloat(r.voltage_kv) || this.studyParams.v_base_kv,
+          length_km: parseFloat(r.length_km) || 0,
+          r1_ohm_km: parseFloat(r.r1_ohm_km) || 0,
+          x1_ohm_km: parseFloat(r.x1_ohm_km) || 0,
+          r0_ohm_km: r.r0_ohm_km ? parseFloat(r.r0_ohm_km) : null,
+          x0_ohm_km: r.x0_ohm_km ? parseFloat(r.x0_ohm_km) : null,
+          trafo_kva: parseFloat(r.trafo_kva) || 0,
+          trafo_z_percent: parseFloat(r.trafo_z_percent) || 0,
+          trafo_connection: r.trafo_connection || 'Yg-Yg',
+          trafo_voltage_sec_kv: parseFloat(r.trafo_voltage_sec_kv) || 0,
+          gen_s_sub_mva: parseFloat(r.gen_s_sub_mva) || 0,
+          gen_xpp_percent: parseFloat(r.gen_xpp_percent) || 0,
+          motor_s_mva: parseFloat(r.motor_s_mva) || 0,
+          motor_xpp_percent: parseFloat(r.motor_xpp_percent) || 0,
+          nominal_current_a: 0,
+          is_active: true,
+        })),
+        calculate_inrush: true,
+        calculate_protection_settings: true,
+        calculate_sizing: true,
+      };
+
+      try {
+        const resp = await fetch('/api/calculations/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || 'Erro no servidor (' + resp.status + ')');
+        }
+        const data = await resp.json();
+
+        // Preenche resultados na grade
+        const resultMap = {};
+        (data.short_circuit_results || []).forEach(r => { resultMap[r.element_code] = r; });
+        this.rows.forEach(row => {
+          const r = resultMap[row.code];
+          if (r) {
+            row._icc3ph = r.icc_3ph_ka;
+            row._icc2ph = r.icc_2ph_ka;
+            row._icc1ph = r.icc_1ph_ka;
+            row._icc_peak = r.icc_peak_ka;
+            row._z1_mag = r.z1_mag_ohm;
+            row._has_warning = r.warnings && r.warnings.length > 0;
+          }
+        });
+
+        this.calcResults = data.short_circuit_results || [];
+        this.ctResults = data.ct_sizing || [];
+        this.vtResults = data.vt_sizing || [];
+        this.breakerResults = data.breaker_sizing || [];
+        this.relayResults = data.relay_settings || [];
+        this.globalWarnings = [...(data.global_warnings || [])];
+        this.hasResults = true;
+        this.lastCalculated = new Date().toLocaleTimeString('pt-BR');
+        this.resultTab = 'curto';
+        if (this.globalWarnings.length > 0) this.showWarnings = true;
+
+      } catch(e) {
+        alert('Erro no cálculo: ' + e.message);
+      } finally {
+        this.calculating = false;
+      }
+    },
+
+    exportCSV() {
+      const headers = ['#','Código','Tipo','Descrição','V(kV)','L(km)','Condutor','R1(Ω/km)','X1(Ω/km)','Trafo(kVA)','%Z','Vsec(kV)','|Z1|acum(Ω)','Icc3φ(kA)','Icc2φ(kA)','Icc1φ(kA)','Ip(kA)'];
+      const rowsData = this.rows.map((r, i) => [
+        i+1, r.code, r.element_type, r.name,
+        r.voltage_kv, r.length_km, r.cable_name,
+        r.r1_ohm_km, r.x1_ohm_km, r.trafo_kva, r.trafo_z_percent, r.trafo_voltage_sec_kv,
+        r._z1_mag != null ? r._z1_mag.toFixed(4) : '',
+        r._icc3ph != null ? r._icc3ph.toFixed(3) : '',
+        r._icc2ph != null ? r._icc2ph.toFixed(3) : '',
+        r._icc1ph != null ? r._icc1ph.toFixed(3) : '',
+        r._icc_peak != null ? r._icc_peak.toFixed(3) : '',
+      ]);
+      const csv = [headers, ...rowsData].map(r => r.join(';')).join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bk_icc_${this.studyId.substring(0,8)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+  };
+}
+</script>
+{% endblock %}

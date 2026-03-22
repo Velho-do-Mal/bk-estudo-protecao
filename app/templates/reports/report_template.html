@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório Técnico — {{ study.study_type if study else 'Estudo' }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2cm 2.5cm 2.5cm 2.5cm;
+      @top-center { content: element(header); }
+      @bottom-center { content: element(footer); }
+    }
+    body { font-family: 'Arial', sans-serif; font-size: 10pt; color: #1a1a1a; line-height: 1.55; }
+    #running-header { position: running(header); border-bottom: 1pt solid #1a3a5c; padding-bottom: 4pt; display: flex; justify-content: space-between; align-items: center; }
+    #running-header .logo-text { font-size: 8pt; font-weight: bold; color: #1a3a5c; }
+    #running-header .doc-ref { font-size: 7pt; color: #666; font-family: monospace; }
+    #running-footer { position: running(footer); border-top: 1pt solid #ddd; padding-top: 4pt; display: flex; justify-content: space-between; font-size: 7pt; color: #888; }
+    .cover-page { page-break-after: always; min-height: 22cm; display: flex; flex-direction: column; }
+    .cover-header { background-color: #1a3a5c; color: white; padding: 24pt 32pt; display: flex; align-items: center; gap: 16pt; }
+    .cover-logo-icon { width: 48pt; height: 48pt; background-color: #e07b39; border-radius: 8pt; display: flex; align-items: center; justify-content: center; font-size: 24pt; font-weight: bold; color: white; flex-shrink: 0; }
+    .cover-logo-text h1 { font-size: 16pt; font-weight: bold; margin: 0 0 2pt 0; }
+    .cover-logo-text p { font-size: 9pt; color: #93c5fd; margin: 0; }
+    .cover-body { flex: 1; padding: 32pt 32pt 24pt; }
+    .cover-type-badge { display: inline-block; background-color: #dbeafe; color: #1a3a5c; font-size: 8pt; font-weight: bold; padding: 3pt 10pt; border-radius: 12pt; margin-bottom: 16pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .cover-title { font-size: 20pt; font-weight: bold; color: #1a3a5c; margin: 0 0 8pt 0; line-height: 1.2; }
+    .cover-subtitle { font-size: 11pt; color: #555; margin: 0 0 24pt 0; }
+    .cover-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; margin-top: 24pt; }
+    .cover-info-item dt { font-size: 7.5pt; color: #888; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3pt; margin-bottom: 2pt; }
+    .cover-info-item dd { font-size: 10pt; color: #1a1a1a; margin: 0; font-weight: 500; }
+    .cover-footer-bar { background-color: #f1f5f9; border-top: 2pt solid #e07b39; padding: 12pt 32pt; font-size: 7.5pt; color: #666; }
+    h2.section-title { font-size: 13pt; font-weight: bold; color: #1a3a5c; border-bottom: 2pt solid #1a3a5c; padding-bottom: 4pt; margin: 20pt 0 12pt 0; page-break-after: avoid; }
+    h3.subsection-title { font-size: 11pt; font-weight: bold; color: #1a3a5c; margin: 16pt 0 8pt 0; page-break-after: avoid; }
+    h4.subsubsection-title { font-size: 10pt; font-weight: bold; color: #334155; margin: 12pt 0 6pt 0; page-break-after: avoid; }
+    table { width: 100%; border-collapse: collapse; margin: 8pt 0 16pt 0; font-size: 9pt; page-break-inside: avoid; }
+    thead tr { background-color: #1a3a5c; color: white; }
+    th { padding: 5pt 8pt; text-align: left; font-weight: 600; font-size: 8.5pt; }
+    td { padding: 4pt 8pt; border-bottom: 0.5pt solid #e2e8f0; }
+    tbody tr:nth-child(even) { background-color: #f8fafc; }
+    td.num { text-align: right; font-family: monospace; font-size: 9pt; }
+    td.highlight { font-weight: bold; color: #1a3a5c; }
+    td.mono { font-family: monospace; }
+    td.danger { color: #b91c1c; font-weight: bold; }
+    .info-box { background-color: #eff6ff; border-left: 3pt solid #3b82f6; padding: 8pt 12pt; margin: 10pt 0; font-size: 9pt; }
+    .warning-box { background-color: #fffbeb; border-left: 3pt solid #f59e0b; padding: 8pt 12pt; margin: 10pt 0; font-size: 9pt; }
+    .disclaimer-box { background-color: #fef2f2; border: 1pt solid #fecaca; border-radius: 4pt; padding: 10pt 14pt; margin: 12pt 0; font-size: 8.5pt; color: #7f1d1d; }
+    .disclaimer-box strong { display: block; margin-bottom: 4pt; font-size: 9pt; }
+    .eq-box { background-color: #f8fafc; border: 0.5pt solid #cbd5e1; border-radius: 3pt; padding: 10pt 14pt; margin: 8pt 0 12pt 30pt; font-family: monospace; font-size: 10pt; color: #1e293b; }
+    .eq-box .eq-label { font-size: 8pt; color: #64748b; margin-bottom: 4pt; font-family: sans-serif; }
+    .chart-container { text-align: center; margin: 12pt 0; page-break-inside: avoid; }
+    .chart-container img { max-width: 100%; height: auto; }
+    .chart-caption { font-size: 8pt; color: #666; margin-top: 4pt; font-style: italic; }
+    .designation-badge { font-family: monospace; font-weight: bold; color: #312e81; background-color: #eef2ff; border: 0.5pt solid #c7d2fe; padding: 2pt 6pt; border-radius: 2pt; font-size: 9pt; }
+    .page-counter::after { content: counter(page); }
+    .page-total::after { content: counter(pages); }
+    .mono { font-family: monospace; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .bold { font-weight: bold; }
+    .text-muted { color: #666; }
+    .text-small { font-size: 8.5pt; }
+    .no-break { page-break-inside: avoid; }
+    .revision-table th { background-color: #334155; }
+    .revision-table { font-size: 8.5pt; }
+    sub { font-size: 7pt; }
+    sup { font-size: 7pt; }
+  </style>
+</head>
+<body>
+
+<!-- Cabeçalho e Rodapé correntes (WeasyPrint) -->
+<div id="running-header">
+  <span class="logo-text">BK_Estudo_Proteção v2 — BK Engenharia e Tecnologia</span>
+  <span class="doc-ref">{{ project.project_number if project else '' }} | Rev. {{ project.current_revision if project else '0' }}</span>
+</div>
+<div id="running-footer">
+  <span>{{ project.company_name if project else 'BK Engenharia e Tecnologia' }}</span>
+  <span>Página <span class="page-counter"></span> de <span class="page-total"></span></span>
+  <span>Gerado em: {{ generated_at }}</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ CAPA ═══ -->
+<div class="cover-page">
+  <div class="cover-header">
+    <div class="cover-logo-icon">⚡</div>
+    <div class="cover-logo-text">
+      <h1>BK_Estudo_Proteção</h1>
+      <p>Sistema Profissional de Estudos Elétricos v2.0</p>
+    </div>
+  </div>
+  <div class="cover-body">
+    <div class="cover-type-badge">Relatório Técnico — Proteção e Curto-Circuito</div>
+    <h1 class="cover-title">{{ study.study_type if study else 'Estudo Elétrico' }}</h1>
+    <p class="cover-subtitle">{% if project %}{{ project.name }} — {% endif %}Estudo de Curto-Circuito IEC 60909:2016</p>
+    <div class="cover-info-grid">
+      {% if project %}
+      <div class="cover-info-item"><dt>Número do Projeto</dt><dd class="mono">{{ project.project_number }}</dd></div>
+      <div class="cover-info-item"><dt>Revisão</dt><dd class="mono">Rev. {{ project.current_revision }}</dd></div>
+      <div class="cover-info-item"><dt>Responsável Técnico</dt><dd>{{ project.responsible_engineer or '—' }}</dd></div>
+      <div class="cover-info-item"><dt>Empresa</dt><dd>{{ project.company_name or 'BK Engenharia e Tecnologia' }}</dd></div>
+      {% endif %}
+      {% if study %}
+      <div class="cover-info-item"><dt>Tensão Nominal do Sistema</dt><dd class="mono">{{ study.v_base_kv }} kV</dd></div>
+      <div class="cover-info-item"><dt>Frequência</dt><dd class="mono">{{ study.frequency_hz or 60 }} Hz</dd></div>
+      <div class="cover-info-item"><dt>Fator de Tensão c<sub>max</sub></dt><dd class="mono">{{ study.voltage_factor_c }} (IEC 60909 Tab.1)</dd></div>
+      <div class="cover-info-item"><dt>Impedância Fonte (|Z|)</dt><dd class="mono">{{ "%.4f"|format(zfonte_mag) }} Ω</dd></div>
+      {% endif %}
+      <div class="cover-info-item"><dt>Data de Emissão</dt><dd>{{ generated_at }}</dd></div>
+      <div class="cover-info-item"><dt>Versão do Algoritmo</dt><dd class="mono">{{ algorithm_version }}</dd></div>
+    </div>
+  </div>
+  <div class="cover-footer-bar">
+    <strong>AVISO TÉCNICO:</strong> Este documento foi gerado por software de cálculo e requer validação por engenheiro habilitado (CREA).
+    Normas: IEC 60909:2016, ABNT NBR IEC 61869-2/3:2014/2016, ABNT NBR IEC 62271-100:2014, IEC 60255-151:2009.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════ 1. REVISÕES ═══ -->
+<h2 class="section-title">1. Identificação e Controle de Revisões</h2>
+<table class="revision-table">
+  <thead><tr><th>Rev.</th><th>Data</th><th>Descrição</th><th>Elaborado por</th><th>Verificado</th><th>Aprovado</th></tr></thead>
+  <tbody>
+    {% if revisions %}
+      {% for rev in revisions %}
+      <tr>
+        <td class="mono text-center">{{ rev.revision_number }}</td>
+        <td>{{ rev.created_at.strftime('%d/%m/%Y') if rev.created_at else '—' }}</td>
+        <td>{{ rev.description or 'Emissão inicial' }}</td>
+        <td>{{ rev.created_by_name or '—' }}</td>
+        <td>—</td><td>—</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr>
+        <td class="mono text-center">0</td>
+        <td>{{ generated_at }}</td>
+        <td>Emissão inicial</td>
+        <td>{{ project.responsible_engineer if project else '—' }}</td>
+        <td>—</td><td>—</td>
+      </tr>
+    {% endif %}
+  </tbody>
+</table>
+
+
+<!-- ═══════════════════════════════════════════════════ 2. METODOLOGIA ═══ -->
+<h2 class="section-title">2. Metodologia, Equações e Referências Normativas</h2>
+
+<div class="info-box">
+  <strong>Método de cálculo:</strong> Correntes de curto-circuito calculadas pelo
+  <strong>método da fonte de tensão equivalente no ponto de falta</strong> (IEC 60909-0:2016, §4).
+  A tensão equivalente é c × U<sub>n</sub>/√3, onde c é o fator de tensão (Tab.1).
+  A rede é representada por suas impedâncias de sequência positiva, negativa e zero.
+</div>
+
+<h3 class="subsection-title">2.1 Referências Normativas</h3>
+<table>
+  <thead><tr><th>Norma</th><th>Título</th><th>Aplicação neste estudo</th></tr></thead>
+  <tbody>
+    {% for ref in methodology_references %}
+    <tr>
+      <td class="mono bold text-small">{{ ref.code }}</td>
+      <td class="text-small">{{ ref.title }}</td>
+      <td class="text-muted text-small">{{ ref.application }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3 class="subsection-title">2.2 Equações Fundamentais de Curto-Circuito</h3>
+
+<h4 class="subsubsection-title">a) Corrente Trifásica Máxima — Icc3φ</h4>
+<div class="eq-box">
+  <div class="eq-label">IEC 60909-0:2016, equação (29) — Corrente de curto trifásica máxima (simétrica, kA eficaz):</div>
+  I"k3 = (c × U<sub>n</sub>) / (√3 × |Z<sub>1,acum</sub>|)
+</div>
+<p class="text-small text-muted">onde: c = fator de tensão (1,10 para máxima); U<sub>n</sub> = tensão nominal fase-fase [kV]; Z<sub>1,acum</sub> = impedância de seq. positiva acumulada da fonte até o ponto de falta [Ω].</p>
+
+<h4 class="subsubsection-title">b) Corrente Bifásica — Icc2φ</h4>
+<div class="eq-box">
+  <div class="eq-label">IEC 60909-0:2016, eq. (32) — Corrente de curto bifásica (sem terra, simétrica):</div>
+  I"k2 = (√3/2) × I"k3  ≈  0,866 × I"k3
+</div>
+
+<h4 class="subsubsection-title">c) Corrente Monofásica — Icc1φ (neutro aterrado)</h4>
+<div class="eq-box">
+  <div class="eq-label">IEC 60909-0:2016, eq. (33) — Corrente de curto monofásica:</div>
+  I"k1 = (√3 × c × U<sub>n</sub>) / (|Z<sub>1</sub> + Z<sub>2</sub> + Z<sub>0</sub>|)
+</div>
+<p class="text-small text-muted">onde: Z<sub>0</sub> = impedância de seq. zero acumulada. Válido apenas para sistemas com neutro aterrado. Z<sub>2</sub> = Z<sub>1</sub> (componentes simétricas).</p>
+
+<h4 class="subsubsection-title">d) Corrente de Pico — ip (componente CC)</h4>
+<div class="eq-box">
+  <div class="eq-label">IEC 60909-0:2016, eq. (52) — Corrente de pico máxima (assimétrica):</div>
+  ip = κ × √2 × I"k3
+</div>
+<div class="eq-box">
+  <div class="eq-label">IEC 60909-0:2016, eq. (73) — Fator de assimetria κ:</div>
+  κ = 1,02 + 0,98 × e<sup>−3/(X<sub>1</sub>/R<sub>1</sub>)</sup>    ;  1,0 ≤ κ ≤ 2,0
+</div>
+<p class="text-small text-muted">O fator κ depende da relação X/R no ponto de falta. Para X/R = 10: κ ≈ 1,82. Para X/R → ∞: κ → 2,0.</p>
+
+<h4 class="subsubsection-title">e) Corrente Acumulativa (rede radial)</h4>
+<div class="eq-box">
+  <div class="eq-label">Acumulação sequencial de impedâncias (topologia radial):</div>
+  Z<sub>acum,n</sub> = Z<sub>fonte</sub> + Z<sub>seg1</sub> + Z<sub>seg2</sub> + ... + Z<sub>segN</sub>
+  Z<sub>seg,linha</sub> = (R<sub>1</sub> + jX<sub>1</sub>) × L     [R em Ω/km, L em km]
+  Z<sub>seg,trafo</sub> = (%Z/100) × (U<sub>n</sub><sup>2</sup>/S<sub>n</sub>)    [Ω]  ;  X/R = 10 (assumido)
+  Z<sub>fonte</sub> = U<sub>n</sub><sup>2</sup> / S<sub>cc,conc</sub>    [Ω]   (X/R = 10 — distribuição MT)
+</div>
+<p class="text-small text-muted">A corrente de curto DIMINUI conforme nos afastamos da fonte. Icc máximo = no ponto mais próximo da fonte.</p>
+
+<h4 class="subsubsection-title">f) Curvas de Proteção Inversa — IEC 60255-151</h4>
+<div class="eq-box">
+  <div class="eq-label">IEC 60255-151:2009 — Equação geral das curvas inversas temporizadas:</div>
+  t = TMS × β / (M<sup>α</sup> − 1)    ;   M = I / I<sub>pickup</sub>
+  NI:  α = 0,02  ; β = 0,114      (Normalmente Inversa)
+  VI:  α = 1,00  ; β = 13,5       (Muito Inversa)
+  EI:  α = 2,00  ; β = 80,0       (Extremamente Inversa)
+  LI:  α = 1,00  ; β = 120,0      (Longa Inversa)
+</div>
+
+<h3 class="subsection-title">2.3 Hipóteses e Premissas Adotadas</h3>
+<table>
+  <thead><tr><th>Parâmetro</th><th>Valor Adotado</th><th>Origem</th><th>Justificativa / Impacto</th></tr></thead>
+  <tbody>
+    <tr><td>Fator de tensão c<sub>max</sub></td><td class="mono">{{ study.voltage_factor_c }}</td><td>IEC 60909 Tab.1</td><td>Correntes máximas — dimensionamento de equipamentos e relés</td></tr>
+    <tr><td>Fator de tensão c<sub>min</sub></td><td class="mono">0,95</td><td>IEC 60909 Tab.1</td><td>Correntes mínimas — verificação de sensibilidade de relés</td></tr>
+    <tr><td>Z<sub>0</sub> (sem dados)</td><td class="mono">Z<sub>0</sub> = 3 × Z<sub>1</sub></td><td>Assumido</td><td>Conservador para Icc1φ; verificar com fabricante do cabo</td></tr>
+    <tr><td>X/R trafo (sem catálogo)</td><td class="mono">X/R = 10</td><td>Assumido</td><td>Típico distribuição MT; afeta κ e curva TCC</td></tr>
+    <tr><td>X" motor</td><td class="mono">16,7%</td><td>IEC 60909 §4.3.4</td><td>Padrão motor de indução de gaiola; afeta Icc nos primeiros ciclos</td></tr>
+    <tr><td>Temperatura condutores</td><td class="mono">{{ study.conductor_temp_c }} °C</td><td>Informado</td><td>R a 20°C: máxima Icc (condutores frios); a 90°C: térmica pior caso</td></tr>
+    <tr><td>Topologia</td><td>Radial</td><td>Assumido</td><td>Redes malhadas requerem método de matriz Z-barra (não impl. nesta versão)</td></tr>
+    <tr><td>Regime de neutro MT</td><td>Isolado</td><td>Assumido</td><td>Padrão redes urbanas MT Brasil; Ktf TP = 1,9 contínuo</td></tr>
+    <tr><td>Falta à terra (Icc1φ)</td><td>Calculada quando Z<sub>0</sub> ≠ 0</td><td>—</td><td>Disponível apenas se Z<sub>0</sub> informado ou estimado</td></tr>
+  </tbody>
+</table>
+
+
+<!-- ═══════════════════════════════════════════════════ 3. SISTEMA ═══ -->
+<h2 class="section-title">3. Dados do Sistema Elétrico</h2>
+{% if study %}
+<table>
+  <thead><tr><th>Parâmetro</th><th>Valor</th><th>Unidade</th><th>Origem</th></tr></thead>
+  <tbody>
+    <tr><td>Tensão nominal (U<sub>n</sub>)</td><td class="mono">{{ study.v_base_kv }}</td><td>kV</td><td>Informado</td></tr>
+    <tr><td>Potência base (S<sub>base</sub>)</td><td class="mono">{{ study.s_base_mva }}</td><td>MVA</td><td>Informado</td></tr>
+    <tr><td>Frequência</td><td class="mono">{{ study.frequency_hz }}</td><td>Hz</td><td>Informado</td></tr>
+    <tr><td>Fator de tensão c<sub>max</sub></td><td class="mono">{{ study.voltage_factor_c }}</td><td>—</td><td>IEC 60909 Tab.1</td></tr>
+    <tr><td>Temperatura dos condutores</td><td class="mono">{{ study.conductor_temp_c }}</td><td>°C</td><td>Informado</td></tr>
+    <tr><td>Duração da falta</td><td class="mono">{{ study.fault_time_s }}</td><td>s</td><td>Informado</td></tr>
+    <tr><td>Impedância fonte R<sub>1</sub> (concessionária)</td><td class="mono">{{ "%.6f"|format(study.z_source_r_ohm or 0) }}</td><td>Ω</td><td>{{ "Calculado de Scc" if study.short_circuit_mva_source else "Informado" }}</td></tr>
+    <tr><td>Impedância fonte X<sub>1</sub> (concessionária)</td><td class="mono">{{ "%.6f"|format(study.z_source_x_ohm or 0) }}</td><td>Ω</td><td>{{ "Calculado de Scc" if study.short_circuit_mva_source else "Informado" }}</td></tr>
+    <tr><td>|Z<sub>fonte</sub>|</td><td class="mono">{{ "%.6f"|format(zfonte_mag) }}</td><td>Ω</td><td>Calculado</td></tr>
+    {% if study.short_circuit_mva_source %}<tr><td>S<sub>cc</sub> concessionária</td><td class="mono">{{ "%.1f"|format(study.short_circuit_mva_source) }}</td><td>MVA</td><td>Informado</td></tr>{% endif %}
+  </tbody>
+</table>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 4. ELEMENTOS ═══ -->
+{% if elements %}
+<h2 class="section-title">4. Elementos da Rede Elétrica</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Código</th><th>Tipo</th><th>Descrição</th>
+      <th class="text-right">V (kV)</th><th class="text-right">L (km)</th>
+      <th>Condutor</th><th class="text-right">R<sub>1</sub> (Ω/km)</th>
+      <th class="text-right">X<sub>1</sub> (Ω/km)</th>
+      <th class="text-right">Trafo (kVA)</th><th class="text-right">%Z</th>
+      <th>Origem</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for elem in elements %}
+    <tr>
+      <td class="mono bold">{{ elem.code }}</td>
+      <td>{{ elem.element_type.value if elem.element_type else '—' }}</td>
+      <td>{{ elem.name or '—' }}</td>
+      <td class="num">{{ "%.2f"|format(elem.voltage_kv) if elem.voltage_kv else '—' }}</td>
+      <td class="num">{{ "%.3f"|format(elem.length_km) if elem.length_km else '—' }}</td>
+      <td class="mono text-small">{{ elem.cable_name or '—' }}</td>
+      <td class="num">{{ "%.5f"|format(elem.r1_ohm_km) if elem.r1_ohm_km else '—' }}</td>
+      <td class="num">{{ "%.5f"|format(elem.x1_ohm_km) if elem.x1_ohm_km else '—' }}</td>
+      <td class="num">{{ "%.0f"|format(elem.trafo_kva) if elem.trafo_kva else '—' }}</td>
+      <td class="num">{{ "%.2f"|format(elem.trafo_z_percent) + "%" if elem.trafo_z_percent else '—' }}</td>
+      <td class="text-muted text-small">{{ elem.data_origin.value if elem.data_origin else 'informado' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 5. CURTO-CIRCUITO ═══ -->
+<h2 class="section-title">5. Resultados de Curto-Circuito — IEC 60909:2016</h2>
+<div class="warning-box">
+  <strong>Nota:</strong> Correntes em kA eficazes simétricos, exceto I<sub>p</sub> (pico assimétrico).
+  Fator c = {{ study.voltage_factor_c if study else 1.10 }}.
+  A impedância exibida é ACUMULATIVA da fonte até o ponto de falta.
+  Corrente de curto DIMINUI à medida que nos afastamos da fonte.
+</div>
+
+{% if calc_results %}
+<table>
+  <thead>
+    <tr>
+      <th>Código</th><th>Barra</th><th>V (kV)</th>
+      <th class="text-right">R<sub>1,acum</sub> (Ω)</th>
+      <th class="text-right">X<sub>1,acum</sub> (Ω)</th>
+      <th class="text-right">|Z<sub>1</sub>| (Ω)</th>
+      <th class="text-right">I"k3 (kA)</th>
+      <th class="text-right">I"k2 (kA)</th>
+      <th class="text-right">I"k1 (kA)</th>
+      <th class="text-right">i<sub>p</sub> (kA)</th>
+      <th class="text-right">κ</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in calc_results %}
+    <tr>
+      <td class="mono bold">{% if r.element_id %}{{ r.element_id }}{% else %}—{% endif %}</td>
+      <td class="mono text-muted">—</td>
+      <td class="num">—</td>
+      <td class="num mono">{{ "%.4f"|format(r.z1_r_ohm) if r.z1_r_ohm is not none else '—' }}</td>
+      <td class="num mono">{{ "%.4f"|format(r.z1_x_ohm) if r.z1_x_ohm is not none else '—' }}</td>
+      <td class="num mono bold">{{ "%.4f"|format(r.z1_r_ohm**2 + r.z1_x_ohm**2)**0.5 if r.z1_r_ohm is not none else '—' }}</td>
+      <td class="num highlight">{{ "%.3f"|format(r.icc_3ph_ka) if r.icc_3ph_ka else '—' }}</td>
+      <td class="num">{{ "%.3f"|format(r.icc_2ph_ka) if r.icc_2ph_ka else '—' }}</td>
+      <td class="num">{{ "%.3f"|format(r.icc_1ph_ka) if r.icc_1ph_ka else '—' }}</td>
+      <td class="num danger">{{ "%.3f"|format(r.icc_peak_ka) if r.icc_peak_ka else '—' }}</td>
+      <td class="num">{{ "%.2f"|format(r.kappa_factor) if r.kappa_factor else '—' }}</td>
+      <td class="text-center">{% if r.is_valid %}<span style="color:#16a34a">✓ OK</span>{% else %}<span style="color:#dc2626">⚠ Erro</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="warning-box">Nenhum resultado de cálculo disponível. Execute o cálculo na tela "Rede / Cálculo" e recalcule antes de gerar o relatório.</div>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 6. DIMENSIONAMENTO ═══ -->
+<h2 class="section-title">6. Dimensionamento de Equipamentos de Proteção e Medição</h2>
+
+<h3 class="subsection-title">6.1 Transformadores de Corrente (TC) — ABNT NBR IEC 61869-2:2014</h3>
+<div class="info-box text-small">
+  <strong>Critério:</strong>
+  ALF (Accuracy Limit Factor) ≥ I"k3<sub>max</sub> / I<sub>p,TC</sub>.
+  Vk ≥ ALF × I<sub>s</sub> × (R<sub>ct</sub> + R<sub>burden</sub>).
+  Classe de proteção: 5P{ALF} (erro ≤ 5%, faixa até ALF×In).
+  Potência série normalizada: 5/10/15/30/60 VA.
+  Designação: TC Ip/Is A – Classe – Potência VA – Un kV – NBI kV (NBI) – 60 Hz.
+</div>
+{% if calc_results %}
+<table>
+  <thead>
+    <tr>
+      <th>Elemento</th><th>Designação Completa ABNT</th>
+      <th class="text-right">Relação [A]</th><th>Classe</th>
+      <th class="text-right">ALF req.</th><th class="text-right">ALF adot.</th>
+      <th class="text-right">Potência [VA]</th><th class="text-right">Vk [V]</th>
+      <th class="text-right">NBI [kV]</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in calc_results if r.ct_class_suggested %}
+    <tr>
+      <td class="mono bold">—</td>
+      <td><span class="designation-badge">{{ r.ct_class_suggested or '—' }}</span></td>
+      <td class="num mono">{{ "%.0f/5"|format(r.ct_primary_nominal_a) if r.ct_primary_nominal_a else '—' }}</td>
+      <td class="mono">{{ r.ct_class_suggested or '—' }}</td>
+      <td class="num">—</td><td class="num">—</td>
+      <td class="num">{{ "%.0f"|format(r.ct_burden_max_va) if r.ct_burden_max_va else '—' }}</td>
+      <td class="num">{{ "%.0f"|format(r.ct_kneepoint_voltage_v) if r.ct_kneepoint_voltage_v else '—' }}</td>
+      <td class="num">—</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="text-center text-muted">Execute o cálculo para obter dimensionamentos de TC.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="warning-box">Dimensionamento de TC disponível após execução do cálculo.</div>
+{% endif %}
+
+<h3 class="subsection-title">6.2 Transformadores de Potencial (TP) — ABNT NBR IEC 61869-3:2016</h3>
+<div class="info-box text-small">
+  <strong>Critério:</strong>
+  Vs = 115 V fase-fase (padrão Brasil).
+  Ktf = 1,9 contínuo (neutro isolado — típico MT urbana Brasil).
+  Classe 3P: erro ≤ ±3%, deslocamento ≤ ±120' de 5% a 150% Un.
+  Designação: TP Vp/Vs V – Classe – Potência VA – Ktf X,X – Un kV – NBI kV (NBI) – 60 Hz.
+</div>
+{% if calc_results %}
+<table>
+  <thead>
+    <tr>
+      <th>Elemento</th><th>Designação Completa ABNT</th>
+      <th class="text-right">Relação [V/V]</th><th>Classe</th>
+      <th class="text-right">Potência [VA]</th><th>Ktf</th>
+      <th class="text-right">NBI [kV]</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in calc_results if r.vt_ratio_suggested %}
+    <tr>
+      <td class="mono bold">—</td>
+      <td><span class="designation-badge">{{ r.vt_ratio_suggested or '—' }}</span></td>
+      <td class="num mono">{{ r.vt_ratio_suggested or '—' }}</td>
+      <td class="mono">{{ r.vt_class_suggested or '3P' }}</td>
+      <td class="num">—</td><td>1,9 contínuo</td><td class="num">—</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-center text-muted">Execute o cálculo para obter dimensionamentos de TP.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="warning-box">Dimensionamento de TP disponível após execução do cálculo.</div>
+{% endif %}
+
+<h3 class="subsection-title">6.3 Disjuntores — ABNT NBR IEC 62271-100:2014</h3>
+<div class="info-box text-small">
+  <strong>Critério:</strong>
+  I<sub>cc,rupt</sub> ≥ I"k3<sub>max</sub> (simétrica eficaz).
+  I<sub>cc,fech</sub> ≥ ip = κ × √2 × I"k3 (corrente de pico).
+  I<sub>cc,curta</sub> ≥ I"k3 por t = 1s ou 3s (suportabilidade térmica).
+  Tensão nominal: classe padronizada imediatamente superior à Un do sistema.
+</div>
+{% if calc_results %}
+<table>
+  <thead>
+    <tr>
+      <th>Elemento</th>
+      <th class="text-right">Classe [kV]</th><th class="text-right">In [A]</th>
+      <th class="text-right">I<sub>rupt</sub> [kA]</th>
+      <th class="text-right">I<sub>fech</sub> [kA]</th>
+      <th class="text-right">I<sub>curta</sub> [kA/1s]</th>
+      <th>V OK</th><th>I OK</th><th>Rupt OK</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in calc_results if r.breaker_voltage_class_kv %}
+    <tr>
+      <td class="mono bold">—</td>
+      <td class="num mono">{{ "%.0f"|format(r.breaker_voltage_class_kv) }}</td>
+      <td class="num mono">{{ "%.0f"|format(r.breaker_current_nominal_a) if r.breaker_current_nominal_a else '—' }}</td>
+      <td class="num mono danger">{{ "%.1f"|format(r.breaker_isc_ka) if r.breaker_isc_ka else '—' }}</td>
+      <td class="num mono">{{ "%.1f"|format(r.breaker_making_current_ka) if r.breaker_making_current_ka else '—' }}</td>
+      <td class="num mono">—</td>
+      <td class="text-center" style="color:#16a34a">✓</td>
+      <td class="text-center" style="color:#16a34a">✓</td>
+      <td class="text-center" style="color:#16a34a">✓</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="text-center text-muted">Execute o cálculo para obter dimensionamentos de disjuntores.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="warning-box">Dimensionamento de disjuntores disponível após execução do cálculo.</div>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 7. RELÉS ═══ -->
+{% if relays %}
+<h2 class="section-title">7. Parametrização de Relés de Proteção — IEC 60255-151</h2>
+<div class="warning-box text-small">
+  Os ajustes abaixo são <strong>sugestões iniciais de engenharia</strong> baseadas no estudo de curto-circuito.
+  A coordenação final deve ser verificada graficamente no coordenograma (TCC log-log).
+  Os valores confirmados (coluna "Pickup conf." e "TMS conf.") são os ajustes finais definidos pelo engenheiro.
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Tag / Ponto</th><th>Função ANSI</th><th>Localização</th>
+      <th>TC</th><th>TP</th><th>Modelo</th>
+      <th class="text-right">Pickup prim [A]</th>
+      <th class="text-right">Pickup sec [A]</th>
+      <th class="text-right">TMS</th><th>Curva</th>
+      <th class="text-right">Pickup conf.</th>
+      <th class="text-right">TMS conf.</th>
+      <th>Notas</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rel in relays %}
+    <tr>
+      <td class="mono bold">{{ rel.tag or '—' }}</td>
+      <td class="mono bold" style="color:#1d4ed8">{{ rel.ansi_function or '—' }}</td>
+      <td class="text-small">{{ rel.location_description or '—' }}</td>
+      <td class="mono text-small">{{ rel.ct_ratio or '—' }}{% if rel.ct_class %} / {{ rel.ct_class }}{% endif %}</td>
+      <td class="mono text-small">{{ rel.vt_ratio or '—' }}</td>
+      <td class="text-small">{{ rel.model or '—' }}</td>
+      <td class="num mono">{{ "%.1f"|format(rel.pickup_primary_a) if rel.pickup_primary_a else '—' }}</td>
+      <td class="num mono">{{ "%.2f"|format(rel.pickup_secondary_a) if rel.pickup_secondary_a else '—' }}</td>
+      <td class="num mono">{{ "%.3f"|format(rel.tms) if rel.tms else '—' }}</td>
+      <td class="mono text-small">{{ rel.curve_type or '—' }}</td>
+      <td class="num mono bold" style="color:#92400e">{{ "%.1f"|format(rel.confirmed_pickup_primary_a) if rel.confirmed_pickup_primary_a else '—' }}</td>
+      <td class="num mono bold" style="color:#92400e">{{ "%.3f"|format(rel.confirmed_tms) if rel.confirmed_tms else '—' }}</td>
+      <td class="text-small text-muted">{{ rel.notes or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 8. COORDENOGRAMA ═══ -->
+<h2 class="section-title">8. Coordenograma de Proteção (TCC)</h2>
+{% if coordenograma_b64 %}
+<div class="chart-container">
+  <img src="data:image/png;base64,{{ coordenograma_b64 }}" alt="Coordenograma TCC">
+  <p class="chart-caption">
+    Figura 1 — Coordenograma de proteção (curvas tempo × corrente, escala log-log).
+    Gerado por BK_Estudo_Proteção v2.0 — {{ generated_at }}.
+  </p>
+</div>
+{% else %}
+<div class="warning-box">
+  <strong>Coordenograma não disponível nesta versão.</strong>
+  O coordenograma (TCC — Time-Current Curve, gráfico log-log) é essencial para verificar a seletividade
+  entre os relés de proteção. Sua elaboração deve ser realizada com software de coordenação de proteção
+  (ETAP, SKM Power Tools, PowerFactory, DIgSILENT, ou planilha especializada).
+  A funcionalidade de coordenograma automático está em desenvolvimento na versão 3.0 do BK_Estudo_Proteção.
+</div>
+<div class="info-box text-small">
+  <strong>Dados para elaboração manual do coordenograma:</strong><br>
+  ① Use as correntes de curto calculadas na seção 5 como referência nos eixos X.<br>
+  ② Use os ajustes de TMS e pickup da seção 7 para plotar as curvas dos relés.<br>
+  ③ Verifique a margem de seletividade entre relés adjacentes (mínimo: Δt ≥ 0,3 s).<br>
+  ④ Plotar em escala log-log: eixo X = corrente [A] na base do TC; eixo Y = tempo [s].<br>
+  ⑤ Incluir: curvas dos relés, correntes de inrush de trafos, fusíveis, disjuntores.
+</div>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════════════ 9. RESPONSABILIDADE ═══ -->
+<h2 class="section-title">9. Responsabilidade Técnica e Limitações</h2>
+
+<div class="disclaimer-box">
+  <strong>AVISO TÉCNICO OBRIGATÓRIO — RESPONSABILIDADE DO ENGENHEIRO</strong>
+  Este relatório foi gerado automaticamente pelo software BK_Estudo_Proteção v2.0 (Algoritmo v{{ algorithm_version }})
+  e tem caráter exclusivamente auxiliar. Os resultados baseiam-se nas premissas e dados de entrada fornecidos pelo usuário,
+  cujas origens estão identificadas como: <em>informado</em> (dado fornecido), <em>assumido</em> (premissa padrão),
+  <em>calculado</em> (resultado do algoritmo), <em>estimado</em> (aproximação).
+
+  O engenheiro responsável deve obrigatoriamente:
+  (a) verificar todos os dados de entrada contra documentos de projeto;
+  (b) validar os resultados por método independente quando aplicável;
+  (c) assinar e carimbar este documento com seu registro CREA ativo;
+  (d) assumir plena responsabilidade técnica pelos resultados e suas consequências.
+
+  LIMITAÇÕES: (1) Apenas redes radiais; (2) Redes malhadas requerem método Z-barra;
+  (3) Coordenograma deve ser elaborado separadamente; (4) TC/TP: verificar Rct e Vk com fabricante.
+
+  Normas: IEC 60909-0:2016, ABNT NBR IEC 61869-2/3, ABNT NBR IEC 62271-100/102, IEC 60255-151:2009.
+  Este documento NÃO é projeto executivo, laudo técnico ou ART — elaborar separadamente.
+</div>
+
+<table>
+  <thead><tr><th>Cargo</th><th>Nome</th><th>Registro</th><th>Assinatura / Data</th></tr></thead>
+  <tbody>
+    <tr><td>Elaborado por</td><td>{{ project.responsible_engineer if project else '___________________________' }}</td><td>CREA: _______________</td><td>____/____/____</td></tr>
+    <tr><td>Verificado por</td><td>___________________________</td><td>CREA: _______________</td><td>____/____/____</td></tr>
+    <tr><td>Aprovado por</td><td>___________________________</td><td>CREA: _______________</td><td>____/____/____</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

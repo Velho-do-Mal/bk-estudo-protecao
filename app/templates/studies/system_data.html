@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Dados do Sistema — {{ study.name }}{% endblock %}
+{% block page_title %}Dados do Sistema{% endblock %}
+{% block page_subtitle %}{{ study.name }} — Parâmetros globais para cálculo IEC 60909{% endblock %}
+
+{% block content %}
+<div x-data="systemDataForm()" x-init="init()">
+
+  <!-- Abas -->
+  <div class="flex gap-1 mb-6 border-b border-gray-200">
+    <span class="px-4 py-2 text-xs font-semibold text-bk-navy border-b-2 border-bk-navy bg-blue-50 rounded-t-md">
+      Dados do Sistema
+    </span>
+    <a href="/studies/{{ study.id }}/network"
+       class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition">
+      Rede Elétrica
+    </a>
+    <a href="/reports/{{ study.id }}/html" target="_blank"
+       class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy hover:bg-gray-50 rounded-t-md transition">
+      Relatório
+    </a>
+  </div>
+
+  <div class="max-w-3xl space-y-6">
+
+    <!-- Parâmetros do sistema -->
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm p-6">
+      <h3 class="font-semibold text-bk-navy text-sm mb-5 pb-3 border-b border-gray-100">
+        Parâmetros Globais do Sistema
+      </h3>
+      <div class="grid grid-cols-3 gap-4">
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Tensão Base (kV) *
+            <span class="text-gray-400 font-normal">— tensão nominal do sistema</span>
+          </label>
+          <input type="number" x-model="form.v_base_kv" step="0.1"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="13.8">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Potência Base (MVA)
+            <span class="text-gray-400 font-normal">— base pu</span>
+          </label>
+          <input type="number" x-model="form.s_base_mva" step="1"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="100">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">Frequência (Hz)</label>
+          <select x-model="form.frequency_hz"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none">
+            <option value="60">60 Hz (padrão Brasil)</option>
+            <option value="50">50 Hz</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Fator de Tensão c<sub>max</sub>
+            <span class="text-gray-400 font-normal">— IEC 60909-0 Tab.1</span>
+          </label>
+          <input type="number" x-model="form.voltage_factor_c" step="0.01"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="1.10">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Fator de Tensão c<sub>min</sub>
+            <span class="text-gray-400 font-normal">— mínimo (verificação)</span>
+          </label>
+          <input type="number" x-model="form.voltage_factor_c_min" step="0.01"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="0.95">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Temp. Condutores (°C)
+            <span class="text-gray-400 font-normal">— resistividade</span>
+          </label>
+          <input type="number" x-model="form.conductor_temp_c"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="20">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">
+            Duração da Falta (s)
+            <span class="text-gray-400 font-normal">— para térmica</span>
+          </label>
+          <input type="number" x-model="form.fault_time_s" step="0.01"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
+                 placeholder="0.5">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">Tipos de Falta</label>
+          <div class="space-y-1.5 pt-1">
+            <label class="flex items-center gap-2 text-xs text-gray-600">
+              <input type="checkbox" x-model="form.calc_3ph" class="rounded"> Trifásica (Icc3)
+            </label>
+            <label class="flex items-center gap-2 text-xs text-gray-600">
+              <input type="checkbox" x-model="form.calc_2ph" class="rounded"> Bifásica (Icc2)
+            </label>
+            <label class="flex items-center gap-2 text-xs text-gray-600">
+              <input type="checkbox" x-model="form.calc_1ph" class="rounded"> Monofásica (Icc1)
+            </label>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Avisos técnicos -->
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+      <div class="flex gap-3">
+        <svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.072 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+        </svg>
+        <div>
+          <p class="text-sm font-semibold text-amber-800 mb-1">Premissas e Hipóteses de Cálculo</p>
+          <ul class="text-xs text-amber-700 space-y-0.5">
+            <li>• Fator c<sub>max</sub> = 1,10 conforme IEC 60909-0:2016 Tabela 1 para sistemas ≤ 1 kV e > 1 kV</li>
+            <li>• Análise de rede radial — metodologia de superposição não implementada nesta versão</li>
+            <li>• Impedância de sequência zero: Z0 = 3×Z1 (assumido para cabos sem dados disponíveis)</li>
+            <li>• X/R = 10 assumido para transformadores sem dados de fábrica</li>
+            <li>• Motores: reatância subtransitória X" = 16,7% assumida (IEC 60909-0 §4.3.4)</li>
+            <li>• Os resultados requerem validação por engenheiro habilitado — CREA/CFM</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botões -->
+    <div class="flex items-center gap-3">
+      <button @click="save()"
+              :disabled="saving"
+              class="bg-bk-navy text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-900 transition shadow-sm disabled:opacity-50">
+        <span x-text="saving ? 'Salvando...' : 'Salvar Parâmetros'"></span>
+      </button>
+      <a href="/studies/{{ study.id }}/network"
+         class="bg-white border border-gray-200 text-gray-600 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+        Ir para Rede Elétrica →
+      </a>
+      <span x-show="saved" x-cloak class="text-green-600 text-sm font-medium">✓ Salvo</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function systemDataForm() {
+  return {
+    saving: false,
+    saved: false,
+    form: {
+      v_base_kv: {{ study.v_base_kv or 13.8 }},
+      s_base_mva: {{ study.s_base_mva or 100 }},
+      frequency_hz: {{ study.frequency_hz or 60 }},
+      voltage_factor_c: {{ study.voltage_factor_c or 1.10 }},
+      conductor_temp_c: {{ study.conductor_temp_c or 20 }},
+      fault_time_s: {{ study.fault_time_s or 0.5 }},
+      calc_3ph: true,
+      calc_2ph: true,
+      calc_1ph: true,
+    },
+
+    init() {},
+
+    async save() {
+      this.saving = true;
+      const resp = await fetch('/api/studies/{{ study.id }}', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.form),
+      });
+      this.saving = false;
+      if (resp.ok) {
+        this.saved = true;
+        setTimeout(() => this.saved = false, 3000);
+      } else {
+        alert('Erro ao salvar parâmetros.');
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

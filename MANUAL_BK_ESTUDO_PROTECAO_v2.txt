@@ -1,0 +1,477 @@
+================================================================================
+  BK_ESTUDO_PROTECAO v2 — MANUAL DO USUÁRIO
+  Versão 2.0 | BK Engenharia e Tecnologia
+  Normas: IEC 60909:2016, ABNT NBR IEC 61869-2/3, IEC 62271-100, IEC 60255-151
+================================================================================
+
+AVISO DE RESPONSABILIDADE TÉCNICA
+-----------------------------------
+Este software é uma ferramenta de apoio à engenharia. Os resultados são
+sugestões baseadas nos dados informados e nas metodologias indicadas.
+A validação, responsabilidade técnica e aprovação final dos cálculos,
+dimensionamentos e parametrizações são de EXCLUSIVA RESPONSABILIDADE do
+engenheiro eletricista habilitado (CREA). Este software NÃO substitui a
+análise crítica profissional.
+
+
+================================================================================
+1. VISÃO GERAL DO SOFTWARE
+================================================================================
+
+O BK_Estudo_Proteção v2 é um sistema web para estudos elétricos de:
+
+  a) Curto-circuito — IEC 60909:2016 (método das componentes simétricas)
+  b) Dimensionamento de equipamentos de proteção e medição:
+       - TC (Transformador de Corrente) — ABNT NBR IEC 61869-2:2014
+       - TP (Transformador de Potencial) — ABNT NBR IEC 61869-3:2016
+       - Disjuntor — ABNT NBR IEC 62271-100:2014
+  c) Ajuste de relés de proteção — ABNT NBR IEC 60255-151
+  d) Geração de relatórios técnicos em PDF e HTML
+
+Metodologia de cálculo:
+  - Corrente de curto MÁXIMA: Icc = c_max × V_n / (√3 × |Z_acumulada|)
+  - Fator de tensão c: 1,10 para sistemas > 1 kV (padrão Brasil)
+  - Impedância ACUMULATIVA radial: Z_ponto = Z_fonte + Z_seg1 + Z_seg2 + ...
+  - Fator de assimetria κ (pico): calculado por X/R no ponto de falta
+  - Corrente bifásica: Icc2φ = (√3/2) × Icc3φ
+  - Corrente monofásica: Icc1φ = 3 × V_n / (√3 × |Z1 + Z2 + Z0|)
+
+
+================================================================================
+2. FLUXO DE TRABALHO — PASSO A PASSO
+================================================================================
+
+PASSO 1: Criar Projeto
+  → Acesse: Dashboard → Projetos → Novo Projeto
+  → Preencha: Número do projeto, nome, engenheiro responsável, empresa
+  → Por que: Organiza estudos por cliente/obra. Cada projeto pode ter
+    múltiplos estudos (ex: estudo inicial + revisão por ampliação).
+
+PASSO 2: Criar Estudo dentro do Projeto
+  → No projeto, aba "Estudos" → Novo Estudo
+  → Preencha:
+      • Nome do estudo (ex: "SE Principal 13,8kV - Fevereiro/2026")
+      • Tipo: Curto-Circuito (padrão)
+      • Tensão base [kV]: tensão nominal do sistema (ex: 13,8)
+      • Potência base [MVA]: 100 MVA (base para cálculos em p.u.)
+      • Fator de tensão c: 1,10 (máximo, conservador — IEC 60909 Tab.1)
+      • Duração da falta [s]: 0,5 s (típico para coordenação MT)
+  → Por que: Cada estudo é independente, com seus próprios elementos e
+    resultados. Permite comparar cenários diferentes no mesmo projeto.
+
+PASSO 3: Abrir o Estudo → Rede Elétrica (página principal de cálculo)
+  → No projeto, aba "Estudos" → "Abrir" no cartão do estudo
+  → Você será direcionado à página de Rede Elétrica
+
+PASSO 4: Informar a Impedância da Fonte (Concessionária/Suprimento)
+  → No painel azul "Fonte / Concessionária — Ponto de Entrega (P0)":
+
+  OPÇÃO A — Informar Scc (mais comum):
+    • Scc [MVA]: Potência de curto-circuito no ponto de entrega da
+      concessionária. Solicitar ao agente de distribuição (CPFL, Enel,
+      Equatorial, etc.) ou extrair do PAC (Ponto de Acesso à Rede).
+    → O software calcula automaticamente: Zcc = V² / Scc [Ω]
+    → X/R = 10 é assumido (típico rede de distribuição MT brasileira)
+
+  OPÇÃO B — Informar Z diretamente:
+    • R_fonte [Ω] e X_fonte [Ω]: componentes de sequência positiva
+      da impedância Thévenin da rede no ponto de entrega
+
+  Por que é crítico: Esta é a MAIOR impedância do sistema. Se informada
+  errada, TODOS os resultados de curto-circuito estarão errados.
+  Scc típicos: redes MT distribuição: 50–500 MVA.
+
+PASSO 5: Preencher a Grade de Trechos (da fonte até os pontos finais)
+  → Cada linha da grade é um elemento entre dois pontos (P0 → P1 → P2...)
+  → A impedância é ACUMULATIVA: Z no ponto Pn = Z_fonte + Z_seg1 + ... + Z_segN
+  → Preencha da fonte (P0) para os pontos mais distantes (radial)
+
+  TIPOS DE ELEMENTO:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ LINHA AÉREA / CABO SUBTERRÂNEO                                      │
+  │  • Código: identificação do ponto (ex: P1, F1, TR-A)                │
+  │  • V [kV]: tensão nominal do trecho                                 │
+  │  • L [km]: comprimento do trecho                                    │
+  │  • Condutor: nome do cabo (ex: 95CAL, CAA-185, XLPE-240)            │
+  │    → Ao digitar e sair do campo, o software busca automaticamente   │
+  │      R1 e X1 do banco de condutores BK (120 condutores)             │
+  │  • R1 [Ω/km]: resistência de seq. positiva (auto ou manual)         │
+  │  • X1 [Ω/km]: reatância de seq. positiva (auto ou manual)           │
+  │  → Z_trecho = (R1 + jX1) × L                                        │
+  ├─────────────────────────────────────────────────────────────────────┤
+  │ TRANSFORMADOR                                                       │
+  │  • Trafo [kVA]: potência nominal do transformador                   │
+  │  • %Z: impedância percentual de curto (dado de plaqueta ou fábrica) │
+  │  • Vsec [kV]: tensão nominal do secundário                          │
+  │  → Z_trafo = (%Z/100) × (V²/S) [Ω], X/R = 10 (assumido sem dados)   │
+  │  • Por que %Z é importante: determina a corrente de curto no BT.    │
+  │    Trafo de 1000 kVA 13,8/0,38 kV com %Z=6%: Icc ≈ 9,5 kA no BT     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  SEQUÊNCIA TÍPICA DE ENTRADA:
+    Linha 1: Trecho de linha MT (Alimentador da concessionária → SE)
+    Linha 2: Transformador principal (AT/MT)
+    Linha 3: Trecho de cabo MT (barramento MT → painel)
+    Linha 4: Transformador de distribuição (MT/BT)
+    Linha 5: Cabo BT (saída do transformador → quadro BT)
+
+PASSO 6: Salvar e Calcular
+  → Clique em "CALCULAR" (salva automaticamente antes de calcular)
+  → OU clique em "Salvar" separadamente para salvar sem calcular
+  → Por que salvar: os dados ficam persistidos no banco — ao reabrir
+    o estudo, a grade estará preenchida com os dados anteriores.
+
+PASSO 7: Interpretar os Resultados
+  → Aba "Curto-Circuito": tabela com impedâncias acumuladas e correntes
+    em cada ponto da rede
+  → Aba "Dimensionamento TC/TP": especificação técnica genérica de TCs
+    e TPs para cada elemento, no padrão ABNT
+  → Aba "Disjuntores/Seccionadoras": especificação de disjuntores
+  → Aba "Ajuste de Relés": ajuste inicial sugerido (51/50/51N)
+
+PASSO 8: Relatório
+  → Clicar em "Relatório HTML" ou "PDF" na barra de navegação do estudo
+  → O relatório inclui todos os resultados + aviso de responsabilidade
+
+
+================================================================================
+3. CAMPOS DA GRADE — O QUE PREENCHER E POR QUÊ
+================================================================================
+
+CAMPO: Código
+  O quê: Identificador único do ponto (ex: P1, F1-A, TR-PRINCIPAL)
+  Por que: Identifica o ponto na tabela de resultados e nos relatórios.
+           Use nomes que façam sentido para o projeto (ex: "SE-13kV",
+           "Q-BT-1", "TR-500kVA").
+
+CAMPO: Tipo
+  O quê: Natureza do elemento (Linha aérea, Cabo subterrâneo, Trafo...)
+  Por que: Determina qual fórmula de impedância é usada e quais campos
+           são relevantes. Linhas aéreas têm Z0 via método de Carson
+           (retorno pela terra). Cabos subterrâneos têm Z0 por blindagem.
+
+CAMPO: Descrição / Ponto
+  O quê: Texto livre descrevendo o ponto/trecho (ex: "Trecho Subestação
+          → Painel 1", "Transformador de Iluminação")
+  Por que: Aparece no relatório para identificação do ponto.
+
+CAMPO: V [kV]
+  O quê: Tensão nominal do trecho (fase-fase)
+  Por que: Usado para calcular correntes de carga e dimensionamento
+           de TC/TP/Disjuntor. Use o nível de tensão REAL do trecho
+           (ex: 13,8 kV no primário, 0,38 kV no secundário do trafo).
+
+CAMPO: L [km]
+  O quê: Comprimento do trecho de linha ou cabo
+  Por que: Z_trecho = (R1 + jX1) × L. Um trecho de 10 km de CAA-185
+           tem Z1 ≈ 10 × (0,175 + j0,396) = (1,75 + j3,96) Ω.
+  ATENÇÃO: Informe em km (não metros). 500 m = 0,500 km.
+
+CAMPO: Condutor (nome)
+  O quê: Designação do cabo (ex: "CAA-185", "95CAL", "XLPE-240-Al-MT")
+  Por que: O software busca automaticamente R1 e X1 do banco de
+           condutores (120 condutores cadastrados: CA, CAA, CAL, Cu nu,
+           XLPE-Al MT, XLPE-Cu MT, PVC-Cu BT, PVC-Al BT).
+  DICA: Se o condutor não for encontrado, preencha R1 e X1 manualmente.
+
+CAMPO: R1 [Ω/km] e X1 [Ω/km]
+  O quê: Resistência e reatância de sequência positiva por km
+  Por que: Parâmetros elétricos fundamentais do condutor. Obtidos de:
+           • Banco de dados BK (preenchimento automático pelo nome)
+           • Catálogo do fabricante (Prysmian, Nexans, etc.)
+           • ANSI/IEEE 738, IEC 60228, normas ABNT
+  R0/X0: Se não informados, o software assume Z0 = 3×Z1 (conservador
+          para linhas aéreas). Para cabos MT com blindagem, Z0 ≈ 3,5×R1.
+
+CAMPO: Trafo [kVA]
+  O quê: Potência nominal do transformador
+  Por que: Determina a impedância base: Z_base = V²/S_trafo [Ω].
+           Z_trafo = (%Z/100) × Z_base. Também define a corrente nominal
+           para dimensionamento de TC e disjuntor.
+  Exemplos comuns: 112,5 / 150 / 225 / 300 / 500 / 750 / 1000 / 1500 kVA
+
+CAMPO: %Z (impedância percentual do trafo)
+  O quê: Impedância de curto percentual — dado da plaqueta do trafo
+  Por que: Define a corrente de curto no secundário. É o campo MAIS
+           importante para transformadores. Valores típicos:
+           • Trafos de distribuição MT/BT: 4% a 6%
+           • Trafos de força AT/MT: 6% a 10%
+           • Autotrafos: 10% a 15%
+  ATENÇÃO: Se este campo estiver em zero, a impedância do trafo será zero
+           e os resultados de curto no secundário estarão errados.
+
+CAMPO: Vsec [kV]
+  O quê: Tensão nominal do secundário do transformador
+  Por que: Usado para calcular a corrente de curto no secundário (BT)
+           e dimensionar equipamentos de BT. Ex: 0,380 kV para trafos
+           MT/BT padrão Brasil.
+
+
+================================================================================
+4. PAINEL DE FONTE / CONCESSIONÁRIA
+================================================================================
+
+CAMPO: Tensão [kV]
+  O quê: Tensão nominal do ponto de entrega (igual ao v_base_kv do estudo)
+  Por que: Usado para converter Scc em impedância.
+
+CAMPO: Scc [MVA] — Potência de curto da concessionária
+  O quê: Potência de curto trifásica máxima no ponto de entrega
+  Por que: Determina a impedância equivalente da rede elétrica (Zcc = V²/Scc).
+           Quanto MAIOR o Scc, MENOR a Zcc e MAIOR será o curto no sistema.
+  Como obter: Solicitar à distribuidora (CPFL, Enel, Equatorial, etc.)
+              via Requisição de Acesso (RA) ou PAC (Ponto de Acesso à Rede).
+  Valores típicos:
+    • Rede rural 13,8 kV, alimentador longo: 50 a 150 MVA
+    • Rede urbana 13,8 kV, alimentador curto: 150 a 500 MVA
+    • Barramento de subestação AT/MT: 500 a 2000 MVA
+  DICA: Se não tiver o dado da concessionária, use 200 MVA como estimativa
+        conservadora para rede urbana MT brasileira. DOCUMENTE a hipótese.
+
+CAMPO: R_fonte [Ω] e X_fonte [Ω]
+  O quê: Componentes da impedância equivalente da fonte (seq. positiva)
+  Por que: Podem ser informados diretamente se a concessionária fornece
+           os valores de R e X (mais preciso que apenas Scc).
+  Cálculo automático quando Scc > 0:
+    • Zcc = V² / Scc [Ω]
+    • X/R = 10 (assumido para rede de distribuição MT)
+    • R = Zcc × cos(arctan(10)) ≈ Zcc × 0,0995
+    • X = Zcc × sin(arctan(10)) ≈ Zcc × 0,995
+
+
+================================================================================
+5. BANCO DE CONDUTORES
+================================================================================
+
+O software possui 120 condutores cadastrados em 8 grupos:
+
+GRUPO CA — Alumínio Nu (AAC / All Aluminum Conductor):
+  Seções: 16 a 1000 mm². Uso: linhas aéreas de distribuição MT.
+  Exemplos: CA-16, CA-50, CA-95, CA-185, CA-240, CA-500, CA-1000
+
+GRUPO CAA — Alumínio com Alma de Aço (ACSR / Aluminum Conductor Steel Reinforced):
+  Seções: 25 a 500 mm² + condutores nomeados (Linnet, Hawk, Tern, Rail, Cardinal).
+  Uso: linhas aéreas de transmissão e distribuição AT/MT.
+  Exemplos: CAA-25, CAA-95, CAA-185, Linnet (336,4 MCM), Cardinal (900 MCM)
+
+GRUPO CAL — Alumínio Liga Nu (AAAC / All Aluminum Alloy Conductor):
+  Seções: 16 a 636 mm². Uso: linhas aéreas MT onde se exige maior resistência
+  mecânica sem o peso da alma de aço. Muito usado em MT no Brasil.
+  Exemplos: CAL-16, CAL-50, CAL-95, CAL-185, CAL-636
+
+GRUPO CU_NU — Cobre Nu:
+  Seções: 16 a 240 mm². Uso: aterramento, barramento, linhas de guarda.
+  Exemplos: CU-16, CU-35, CU-70, CU-120, CU-240
+
+GRUPO XLPE_AL_MT — Cabo Isolado Alumínio MT (XLPE):
+  Seções: 35 a 1000 mm². Uso: redes subterrâneas de distribuição MT (6 a 36 kV).
+  Exemplos: XLPE-AL-35-MT, XLPE-AL-95-MT, XLPE-AL-240-MT, XLPE-AL-1000-MT
+
+GRUPO XLPE_CU_MT — Cabo Isolado Cobre MT (XLPE):
+  Seções: 16 a 1000 mm². Uso: redes subterrâneas MT, industrias críticas.
+  Exemplos: XLPE-CU-16-MT, XLPE-CU-95-MT, XLPE-CU-240-MT
+
+GRUPO PVC_CU_BT — Cabo Isolado Cobre BT (PVC/EPR):
+  Seções: 1,5 a 300 mm². Uso: redes BT, instalações industriais.
+  Exemplos: PVC-CU-1.5-BT, PVC-CU-10-BT, PVC-CU-95-BT, PVC-CU-300-BT
+
+GRUPO PVC_AL_BT — Cabo Isolado Alumínio BT (PVC):
+  Seções: 16 a 300 mm². Uso: redes BT, redes de distribuição secundária.
+
+Acesso direto ao banco: GET /api/cables/ (com filtros opcionais)
+Busca por nome: GET /api/cables/search?name=CAA-185
+Grupos disponíveis: GET /api/cables/groups
+
+
+================================================================================
+6. METODOLOGIA DE CÁLCULO — CURTO-CIRCUITO
+================================================================================
+
+MÉTODO: IEC 60909:2016 — Método da Tensão Equivalente na Falta
+
+Premissas:
+  • Rede radial (alimentação em série, de um único ponto de geração)
+  • Tensão equivalente: c × V_n / √3 (fator de tensão c_max = 1,10)
+  • Impedâncias corrigidas por fatores K conforme norma (geradores, motores)
+  • Componentes simétricas para faltas desequilibradas (monofásica)
+  • Frequência nominal: 60 Hz (padrão Brasil)
+  • Temperatura dos condutores: 20°C (máxima corrente de curto — condutores frios)
+
+Correntes calculadas:
+  • Icc3φ (trifásica máxima): I" = c × V_n / (√3 × Z1_acumulada)
+  • Icc2φ (bifásica): I"2φ = (√3/2) × Icc3φ (≈ 86,6% do trifásico)
+  • Icc1φ (monofásica): I"1φ = √3 × c × V_n / (Z1 + Z2 + Z0)
+    (apenas quando Z0 disponível e neutro aterrado)
+  • Ip (pico): ip = κ × √2 × Icc3φ
+  • κ (fator de assimetria): depende de X/R no ponto de falta
+    κ = 1,02 + 0,98 × e^(-3/(X/R))
+
+Sequência de impedâncias:
+  • Z1 = Z2 = Z_positiva (linhas, trafos, geradores)
+  • Z0: depende do tipo de aterramento e conexão dos trafos
+    - Transformador Yg-Yg: Z0 ≈ Z1 (com dados) ou Z0 = 3×Z1 (assumido)
+    - Transformador Yg-D ou D-Yg: Z0 = ∞ (não passa falta monofásica)
+    - Linha aérea: Z0 = Z1 + 3×Za (retorno pela terra — método de Carson)
+
+ACUMULAÇÃO DE IMPEDÂNCIA (correto para rede radial):
+  Z_ponto1 = Z_fonte + Z_trecho1
+  Z_ponto2 = Z_ponto1 + Z_trecho2 = Z_fonte + Z_trecho1 + Z_trecho2
+  Z_pontoN = Z_fonte + Z_trecho1 + ... + Z_trechoN
+
+  Portanto: Icc DIMINUI conforme nos afastamos da fonte.
+  O ponto com MAIOR Icc é sempre o mais próximo da fonte.
+  O ponto com MENOR Icc é sempre o mais distante.
+
+
+================================================================================
+7. DIMENSIONAMENTO DE EQUIPAMENTOS — CRITÉRIOS
+================================================================================
+
+TC — TRANSFORMADOR DE CORRENTE (ABNT NBR IEC 61869-2)
+  Corrente primária: Ip_TC ≥ 1,2 × I_carga_max (série normalizada Tab.4)
+  Corrente secundária: 5 A (padrão Brasil para distâncias curtas)
+  Fator de exatidão (ALF): ALF ≥ Icc_max / Ip_TC (série: 5/10/15/20/30)
+  Burden: Sn_TC ≥ B_relés + B_cabos (VA) (série: 2,5/5/7,5/10/15/30 VA)
+  Classe proteção: 5P{ALF} (ex: 5P20 = erro ≤5% até 20×Ip)
+  Classe diferencial 87T: PX com Vk e Rct especificados
+  NBI: conforme tensão nominal (ABNT NBR IEC 62271-1 Tab.2)
+
+  Designação completa (padrão ABNT):
+    TC 200/5 A – 5P20 – 15 VA – 13,8 kV – 95 kV (NBI) – 60 Hz
+
+TP — TRANSFORMADOR DE POTENCIAL (ABNT NBR IEC 61869-3)
+  Relação: V_sistema / 115 V (conexão fase-fase, padrão MT Brasil)
+           V_sistema / (115/√3) V (conexão fase-terra)
+  Classe proteção: 3P (erro ≤ 3% de 5% a 150% da tensão nominal)
+  Classe medição: 0,5 ou 0,2 (para faturamento ANEEL)
+  Fator de tensão (Ktf):
+    - 1,9 contínuo: neutro isolado (maioria das redes MT urbanas Brasil)
+    - 1,5 por 30s: neutro solidamente aterrado (AT)
+  NBI: igual ao TC, per ABNT NBR IEC 62271-1
+
+  Designação completa (padrão ABNT):
+    TP 13800/115 V – 3P – 50 VA – Ktf 1,9 – 13,8 kV – 95 kV (NBI) – 60 Hz
+
+DISJUNTOR (ABNT NBR IEC 62271-100)
+  Tensão nominal: classe superior à tensão do sistema
+  Corrente nominal: In ≥ I_carga_max (série normalizada)
+  Corrente de ruptura: Icc_rupt ≥ Icc3φ_max (simétrica, kA eficaz)
+  Corrente de fechamento: Icc_fech ≥ Ip_pico = κ × √2 × Icc3φ
+  Curta duração: Icc_curta ≥ Icc3φ por 1s ou 3s
+
+  Designação mínima:
+    Disjuntor 15 kV – 630 A – 25 kA (ruptura) – 63 kA (fechamento) – 60 Hz
+
+
+================================================================================
+8. AJUSTE DE RELÉS — GUIA BÁSICO
+================================================================================
+
+O software sugere ajustes iniciais para funções:
+  • 51 (sobrecorrente temporizado): curva NI (Normally Inverse), IEC
+  • 50 (instantâneo): pickup ≈ 85% de Icc mínimo no ponto protegido
+  • 51N (neutro): proteção de falta à terra
+
+ATENÇÃO: A coordenação final DEVE ser verificada graficamente no
+coordenograma TCC (Time-Current Curve, log-log). O software fornece
+apenas o ponto de partida; o ajuste final é responsabilidade do
+engenheiro de proteção.
+
+Critério de sensibilidade: Icc1φ_min / Ip_relé ≥ 2,0 (mínimo)
+
+
+================================================================================
+9. LIMITAÇÕES CONHECIDAS DO SOFTWARE
+================================================================================
+
+  1. REDE RADIAL APENAS: A metodologia sequencial assume rede radial
+     (um caminho da fonte para a carga). Redes malhadas ou com múltiplas
+     fontes em paralelo requerem software de análise de redes (PSS/E,
+     PowerWorld, PSCAD) para resultados corretos.
+
+  2. CORRENTE MONOFÁSICA (Icc1φ): Calculada apenas quando R0 e X0 são
+     informados OU estimados (Z0 = 3×Z1 para trechos sem dados de Z0).
+     Para trafos com ligação Yg-D, não passa corrente de falta monofásica.
+
+  3. DIMENSIONAMENTO DE TC/TP: Especificações são SUGESTÕES INICIAIS de
+     engenharia. O burden real, Rct e Vk devem ser verificados com o
+     fabricante antes da aquisição.
+
+  4. MOTOR E GERADOR: Contribuição de motores e geradores é incluída via
+     subtransitória (X"). Para estudos de sistemas com geração distribuída
+     significativa, validar com ferramenta específica.
+
+  5. TEMPERATURA DOS CONDUTORES: Resistências tabeladas a 20°C. Para
+     condutores a temperatura de operação máxima (XLPE: 90°C, PVC: 70°C),
+     a resistência aumenta até 30%. O software assume 20°C (conservador
+     para máxima corrente de curto).
+
+  6. COORDENOGRAMA TCC: O coordenograma log-log (gráfico de seletividade)
+     está em desenvolvimento na v2. Usar software externo (ETAP, PowerFactory,
+     DIgSILENT) para a análise gráfica de coordenação.
+
+
+================================================================================
+10. ESTRUTURA DE ARQUIVOS DO PROJETO
+================================================================================
+
+  app/                → Aplicação FastAPI
+    auth/             → Autenticação JWT (login, usuários)
+    projects/         → CRUD de projetos e revisões
+    studies/          → Estudos, elementos de rede
+    calculations/     → Endpoint de cálculo + serviço de orquestração
+    cables/           → API do banco de condutores
+    reports/          → Geração de relatórios HTML/PDF
+    templates/        → Templates Jinja2 (HTML)
+
+  engine/             → Motor de cálculo puro Python
+    domain/           → Modelos de domínio (NetworkElement, SystemBase)
+    short_circuit/    → IEC 60909 (iec60909.py)
+    inrush/           → Inrush de transformadores (IEC 60076-1)
+    protection/       → Ajuste de relés (IEC 60255-151)
+    sizing/           → Dimensionamento TC, TP, Disjuntor
+    cables/           → Banco de dados de condutores (120 entradas)
+    charts/           → Coordenograma (em desenvolvimento)
+
+  MANUAL_BK_ESTUDO_PROTECAO_v2.txt  → Este arquivo
+
+
+================================================================================
+11. ACESSO E AUTENTICAÇÃO
+================================================================================
+
+  URL Local: http://localhost:8000
+  URL Produção: Conforme configuração Railway/Neon
+
+  Criar usuário administrador (primeira vez):
+    python create_admin_direct.py
+
+  Login padrão (pode ser alterado):
+    Usuário: admin
+    Senha: definida na criação
+
+  Sessão: JWT com duração de 480 minutos (8 horas)
+  Cookie: httpOnly, samesite=lax
+
+
+================================================================================
+12. REFERÊNCIAS NORMATIVAS
+================================================================================
+
+  IEC 60909:2016        — Short-circuit currents in three-phase a.c. systems
+  ABNT NBR IEC 61869-2  — Transformadores de corrente (TC)
+  ABNT NBR IEC 61869-3  — Transformadores de tensão indutivos (TP)
+  ABNT NBR IEC 62271-1  — Equipamentos para alta tensão (NBI)
+  ABNT NBR IEC 62271-100— Disjuntores de corrente alternada
+  ABNT NBR IEC 60255-151— Relés de medição e de proteção
+  IEC 60228:2004        — Condutores de cabos isolados
+  IEC 60076-1:2011      — Transformadores de potência (inrush)
+  Mamede Filho, J.       — Manual de Equipamentos Elétricos (4ª ed., LTC)
+  Kindermann, G.        — Curto-Circuito (UFSC, 2ª ed.)
+  Stevenson, W.D.        — Elements of Power System Analysis
+
+
+================================================================================
+  BK Engenharia e Tecnologia | bk-engenharia.com
+  Versão do software: 2.0.0 | Gerado em: 2026-03
+================================================================================

@@ -1,0 +1,736 @@
+{% extends "base.html" %}
+{% block title %}Equipamentos — {{ study.study_type }}{% endblock %}
+{% block page_title %}Dimensionamento de Equipamentos e Relés{% endblock %}
+{% block page_subtitle %}{{ study.study_type }} | {{ study.v_base_kv }} kV | Normas: IEC 61869-2/3, IEC 62271-100/102, IEC 62271-111, IEC 60255-151{% endblock %}
+
+{% block content %}
+<div x-data="equipPage()" x-init="init()">
+
+  <!-- ─── Navegação ────────────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-2 mb-4 text-sm">
+    <a href="/projects/{{ study.project_id }}" class="text-gray-400 hover:text-bk-navy flex items-center gap-1 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+      </svg>
+      Projeto
+    </a>
+    <span class="text-gray-300">|</span>
+    <div class="flex gap-1 border-b border-gray-200 flex-1">
+      <a href="/studies/{{ study.id }}/system-data"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Parâmetros</a>
+      <a href="/studies/{{ study.id }}/network"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Rede / Cálculo</a>
+      <span class="px-4 py-2 text-xs font-semibold text-bk-navy border-b-2 border-bk-navy bg-blue-50 rounded-t-md">Equipamentos / Relés</span>
+      <a href="/studies/{{ study.id }}/diagram"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Diagrama Unifilar</a>
+      <a href="/reports/{{ study.id }}/html" target="_blank"
+         class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Relatório</a>
+    </div>
+  </div>
+
+  <!-- ─── Toolbar ─────────────────────────────────────────────────────────── -->
+  <div class="bg-white border border-bk-border rounded-lg p-3 mb-4 flex flex-wrap items-center gap-2">
+    <button @click="runCalcAndShow()"
+            :disabled="calculating"
+            class="flex items-center gap-2 bg-bk-navy text-white px-5 py-2 rounded-md text-sm font-semibold hover:bg-blue-900 transition disabled:opacity-60">
+      <svg class="w-4 h-4" :class="{'animate-spin': calculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      <span x-text="calculating ? 'Calculando...' : 'Atualizar Dimensionamentos'"></span>
+    </button>
+    <button @click="saveRelays()"
+            :disabled="saving"
+            class="flex items-center gap-2 bg-white border border-bk-border text-gray-700 px-4 py-2 rounded-md text-sm font-semibold hover:bg-gray-50 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+      </svg>
+      <span x-text="saving ? 'Salvando...' : 'Salvar Relés'"></span>
+    </button>
+    <span x-show="savedMsg" x-cloak class="text-green-600 text-sm font-medium">Salvo!</span>
+    <div class="ml-auto text-xs text-gray-500" x-show="calcTime">Calculado: <span x-text="calcTime"></span></div>
+  </div>
+
+  <!-- ─── Sub-abas ─────────────────────────────────────────────────────────── -->
+  <div class="border-b border-gray-200 mb-4">
+    <nav class="flex gap-0 -mb-px">
+      <button @click="tab = 'tc_tp'" :class="tab === 'tc_tp' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'" class="px-5 py-2.5 border-b-2 text-sm transition-colors">TC / TP</button>
+      <button @click="tab = 'disjuntor'" :class="tab === 'disjuntor' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'" class="px-5 py-2.5 border-b-2 text-sm transition-colors">Disjuntores</button>
+      <button @click="tab = 'seccionadora'" :class="tab === 'seccionadora' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'" class="px-5 py-2.5 border-b-2 text-sm transition-colors">Seccionadoras</button>
+      <button @click="tab = 'religador'" :class="tab === 'religador' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'" class="px-5 py-2.5 border-b-2 text-sm transition-colors">Religadores</button>
+      <button @click="tab = 'reles'" :class="tab === 'reles' ? 'border-bk-navy text-bk-navy font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'" class="px-5 py-2.5 border-b-2 text-sm transition-colors">Parametrização de Relés</button>
+    </nav>
+  </div>
+
+  <!-- ══════ ABA TC / TP ══════ -->
+  <div x-show="tab === 'tc_tp'">
+
+    <!-- TC -->
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden mb-6">
+      <div class="bg-bk-navy px-4 py-2.5 flex items-center gap-2">
+        <h3 class="text-white font-semibold text-sm">Transformadores de Corrente (TC) — ABNT NBR IEC 61869-2:2014</h3>
+      </div>
+      <template x-if="ctResults.length === 0">
+        <div class="px-4 py-6 text-center text-gray-400 text-sm">
+          Clique em "Atualizar Dimensionamentos" para calcular TC.
+        </div>
+      </template>
+      <div class="overflow-x-auto" x-show="ctResults.length > 0">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Elemento / Ponto</th>
+              <th class="px-3 py-2">Designação Completa ABNT</th>
+              <th class="px-3 py-2">Relação [A/A]</th>
+              <th class="px-3 py-2">Classe</th>
+              <th class="px-3 py-2">ALF req.</th>
+              <th class="px-3 py-2">ALF adot.</th>
+              <th class="px-3 py-2">Potência [VA]</th>
+              <th class="px-3 py-2">Vk [V]</th>
+              <th class="px-3 py-2">NBI [kV]</th>
+              <th class="px-3 py-2">Saturação</th>
+              <th class="px-3 py-2">Observações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(ct, i) in ctResults" :key="i">
+              <tr>
+                <td class="px-3 py-2 font-mono font-semibold text-bk-navy" x-text="ct.element_code"></td>
+                <td class="px-3 py-2 font-mono text-xs font-bold text-indigo-800 whitespace-nowrap" x-text="ct.designation_string || '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="ct.ip_ratio_string + ' A'"></td>
+                <td class="px-3 py-2 font-mono font-bold" x-text="ct.accuracy_class"></td>
+                <td class="px-3 py-2 font-mono" x-text="ct.alf_required ? ct.alf_required.toFixed(1) : '—'"></td>
+                <td class="px-3 py-2 font-mono font-bold text-bk-navy" x-text="ct.alf_adopted"></td>
+                <td class="px-3 py-2 font-mono" x-text="ct.sn_tc_va + ' VA'"></td>
+                <td class="px-3 py-2 font-mono" x-text="ct.vk_adopted_v ? ct.vk_adopted_v.toFixed(0) + ' V' : '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="ct.bil_kv ? ct.bil_kv + ' kV' : '—'"></td>
+                <td class="px-3 py-2">
+                  <span x-show="ct.saturation_check_ok" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">OK</span>
+                  <span x-show="!ct.saturation_check_ok" class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">Saturação!</span>
+                </td>
+                <td class="px-3 py-2 text-xs text-gray-500" x-text="(ct.warnings||[]).filter(w=>!w.startsWith('AVISO')).join('; ')"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="border-t border-gray-100 px-4 py-2 bg-amber-50">
+        <p class="text-xs text-amber-700">
+          <strong>ABNT NBR IEC 61869-2:</strong>
+          Classe 5P = erro de relação ≤ ±5% e deslocamento de fase ≤ ±60' a <em>n</em>×Ip (ALF×In).
+          Vk ≥ ALF × Ip_sec × (Rct + Rburden). Verificar Rct com o fabricante.
+        </p>
+      </div>
+    </div>
+
+    <!-- TP -->
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5">
+        <h3 class="text-white font-semibold text-sm">Transformadores de Potencial (TP) — ABNT NBR IEC 61869-3:2016</h3>
+      </div>
+      <template x-if="vtResults.length === 0">
+        <div class="px-4 py-6 text-center text-gray-400 text-sm">
+          Clique em "Atualizar Dimensionamentos" para calcular TP.
+        </div>
+      </template>
+      <div class="overflow-x-auto" x-show="vtResults.length > 0">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Elemento</th>
+              <th class="px-3 py-2">Designação Completa ABNT</th>
+              <th class="px-3 py-2">Relação [V/V]</th>
+              <th class="px-3 py-2">Classe</th>
+              <th class="px-3 py-2">Potência [VA]</th>
+              <th class="px-3 py-2">Ktf</th>
+              <th class="px-3 py-2">NBI [kV]</th>
+              <th class="px-3 py-2">Burden OK</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(vt, i) in vtResults" :key="i">
+              <tr>
+                <td class="px-3 py-2 font-mono font-semibold text-bk-navy" x-text="vt.element_code"></td>
+                <td class="px-3 py-2 font-mono text-xs font-bold text-indigo-800 whitespace-nowrap" x-text="vt.designation_string || '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="vt.ratio_string + ' V'"></td>
+                <td class="px-3 py-2 font-mono font-bold" x-text="vt.accuracy_class"></td>
+                <td class="px-3 py-2 font-mono" x-text="vt.sn_vt_va + ' VA'"></td>
+                <td class="px-3 py-2 font-mono" x-text="vt.ktf_value"></td>
+                <td class="px-3 py-2 font-mono" x-text="vt.bil_kv ? vt.bil_kv + ' kV' : '—'"></td>
+                <td class="px-3 py-2">
+                  <span x-show="vt.burden_check_ok" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">OK</span>
+                  <span x-show="!vt.burden_check_ok" class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">Sobrecarga</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="border-t border-gray-100 px-4 py-2 bg-amber-50">
+        <p class="text-xs text-amber-700">
+          <strong>ABNT NBR IEC 61869-3:</strong>
+          Ktf 1,9 contínuo → rede MT com neutro isolado (padrão brasileiro).
+          Classe 3P → erro ≤ ±3% e deslocamento de fase ≤ ±120' de 5% a 150% Un.
+          Vs = 115 V fase-fase (padrão Brasil). Rever conexão com a concessionária.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ ABA DISJUNTORES ══════ -->
+  <div x-show="tab === 'disjuntor'">
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5">
+        <h3 class="text-white font-semibold text-sm">Disjuntores — ABNT NBR IEC 62271-100:2014 | IEC 62271-1:2011</h3>
+      </div>
+      <template x-if="breakerResults.length === 0">
+        <div class="px-4 py-6 text-center text-gray-400 text-sm">
+          Clique em "Atualizar Dimensionamentos" para calcular disjuntores.
+        </div>
+      </template>
+      <div class="overflow-x-auto" x-show="breakerResults.length > 0">
+        <table class="w-full engineering-table">
+          <thead>
+            <tr>
+              <th class="px-3 py-2">Elemento</th>
+              <th class="px-3 py-2">Tipo</th>
+              <th class="px-3 py-2">Classe [kV]</th>
+              <th class="px-3 py-2">In [A]</th>
+              <th class="px-3 py-2">Icc ruptura [kA]</th>
+              <th class="px-3 py-2">Icc fecham. [kA]</th>
+              <th class="px-3 py-2">Icc curta-dur. [kA]</th>
+              <th class="px-3 py-2">t curta [s]</th>
+              <th class="px-3 py-2">V OK</th>
+              <th class="px-3 py-2">I OK</th>
+              <th class="px-3 py-2">Rupt. OK</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(br, i) in breakerResults" :key="i">
+              <tr>
+                <td class="px-3 py-2 font-mono font-semibold text-bk-navy" x-text="br.element_code"></td>
+                <td class="px-3 py-2 text-xs" x-text="br.device_type"></td>
+                <td class="px-3 py-2 font-mono font-bold" x-text="br.voltage_class_kv + ' kV'"></td>
+                <td class="px-3 py-2 font-mono" x-text="br.nominal_current_a ? br.nominal_current_a.toFixed(0) + ' A' : '—'"></td>
+                <td class="px-3 py-2 font-mono font-semibold text-red-700" x-text="br.breaking_current_ka ? br.breaking_current_ka.toFixed(1) + ' kA' : '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="br.making_current_ka ? br.making_current_ka.toFixed(1) + ' kA' : '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="br.short_time_current_ka ? br.short_time_current_ka.toFixed(1) + ' kA' : '—'"></td>
+                <td class="px-3 py-2 font-mono" x-text="br.short_time_duration_s + ' s'"></td>
+                <td class="px-3 py-2 text-center"><span x-show="br.voltage_ok" class="text-green-600 font-bold">✓</span><span x-show="!br.voltage_ok" class="text-red-600 font-bold">✗</span></td>
+                <td class="px-3 py-2 text-center"><span x-show="br.current_ok" class="text-green-600 font-bold">✓</span><span x-show="!br.current_ok" class="text-red-600 font-bold">✗</span></td>
+                <td class="px-3 py-2 text-center"><span x-show="br.breaking_ok" class="text-green-600 font-bold">✓</span><span x-show="!br.breaking_ok" class="text-red-600 font-bold">✗</span></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="border-t border-gray-100 px-4 py-2 bg-amber-50">
+        <p class="text-xs text-amber-700">
+          <strong>IEC 62271-100:</strong>
+          Icc_ruptura (simétrica eficaz) ≥ Icc3φ_max.
+          Icc_fechamento ≥ κ × √2 × Icc3φ (corrente de pico, assimétrica).
+          Icc_curta-duração ≥ Icc3φ por t=1s ou 3s. Tensão nominal: classe normalizada imediatamente superior.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ ABA SECCIONADORAS ══════ -->
+  <div x-show="tab === 'seccionadora'">
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm p-6">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-bk-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-semibold text-bk-navy mb-1">Seccionadoras — ABNT NBR IEC 62271-102:2001</p>
+          <p class="text-xs text-gray-600 mb-3">
+            Seccionadoras (disconnectors) NÃO interrompem corrente de carga — apenas seccionam circuito desenergizado.
+            Devem ser manobradas SOMENTE após o disjuntor associado estar aberto.
+          </p>
+        </div>
+      </div>
+      <table class="w-full engineering-table">
+        <thead>
+          <tr>
+            <th class="px-3 py-2">Parâmetro</th>
+            <th class="px-3 py-2">Critério de Dimensionamento</th>
+            <th class="px-3 py-2">Norma</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="px-3 py-2 font-semibold">Tensão nominal</td><td class="px-3 py-2">Classe normalizada ≥ tensão do sistema</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-102 Tab.1</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Corrente nominal (In)</td><td class="px-3 py-2">In ≥ I_carga_max × 1,25</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-102 §4.1</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Icc curta duração (Ik)</td><td class="px-3 py-2">Ik ≥ Icc3φ por 1s ou 3s (suportabilidade térmica)</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-102 §4.5</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Corrente de pico (Ip)</td><td class="px-3 py-2">Ip ≥ κ × √2 × Icc3φ (suportabilidade eletrodinâmica)</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-102 §4.6</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">NBI</td><td class="px-3 py-2">Conforme tabela IEC 62271-1 (mesma classe do disjuntor)</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-1 Tab.2</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Operação</td><td class="px-3 py-2">Manual / motorizada / telecomandada — especificar conforme projeto</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-102 §6</td></tr>
+        </tbody>
+      </table>
+      <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
+        Os valores de Icc para especificação das seccionadoras são os mesmos calculados para os disjuntores do mesmo ponto.
+        Consulte a aba "Disjuntores" para os valores de Icc3φ e Ip de cada ponto.
+        <strong>Obs.:</strong> Para seccionadoras de terra (aterramento), verificar requisito de Icc1φ mínimo ≥ sensibilidade da proteção de terra.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ ABA RELIGADORES ══════ -->
+  <div x-show="tab === 'religador'">
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm p-6">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-bk-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-semibold text-bk-navy mb-1">Religadores Automáticos — IEC 62271-111:2012 / IEEE C37.60</p>
+          <p class="text-xs text-gray-600">Equipamento de proteção com capacidade de interrumpir e re-fechar automaticamente. Utilizado em alimentadores de distribuição MT para reduzir interrupções permanentes.</p>
+        </div>
+      </div>
+      <table class="w-full engineering-table">
+        <thead>
+          <tr>
+            <th class="px-3 py-2">Parâmetro</th>
+            <th class="px-3 py-2">Critério / Valor típico Brasil</th>
+            <th class="px-3 py-2">Norma</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="px-3 py-2 font-semibold">Tensão nominal</td><td class="px-3 py-2">15 kV ou 27 kV (redes MT Brasil)</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-111 Tab.1</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Corrente nominal</td><td class="px-3 py-2">100 A / 200 A / 400 A / 630 A — série IEC</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-111 §4.1</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Icc ruptura mínima</td><td class="px-3 py-2">≥ Icc3φ máximo no ponto de instalação [kA]</td><td class="px-3 py-2 font-mono text-xs">IEC 62271-111 §4.5</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Sequência de religamento</td><td class="px-3 py-2">Típico: Rápida → Rápida → Lenta → Bloqueio (R-R-L-B)</td><td class="px-3 py-2 font-mono text-xs">IEEE C37.60 §6</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Curva rápida</td><td class="px-3 py-2">Instantânea (50) ou curva A (ANSI)</td><td class="px-3 py-2 font-mono text-xs">IEEE C37.112 / IEC 60255-151</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Curva lenta</td><td class="px-3 py-2">Inversa (51) — coordenada com disjuntores a jusante</td><td class="px-3 py-2 font-mono text-xs">IEC 60255-151</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Telecomando</td><td class="px-3 py-2">SCADA via DNP3 / IEC 61850 — GPRS / rádio</td><td class="px-3 py-2 font-mono text-xs">IEC 61850</td></tr>
+          <tr><td class="px-3 py-2 font-semibold">Alimentação aux.</td><td class="px-3 py-2">Bateria de 24/48 VCC ou supercapacitor</td><td class="px-3 py-2 font-mono text-xs">Especificação fabricante</td></tr>
+        </tbody>
+      </table>
+      <div class="mt-4 p-3 bg-orange-50 border border-orange-200 rounded text-xs text-orange-700">
+        <strong>Coordenação Religador × Fusível:</strong>
+        Para coordenação religador-fusível no alimentador, verificar que a curva rápida do religador atua
+        ANTES da fusão do fusível a jusante (para faltas temporárias). A curva lenta deve coordenar com o fusível
+        (para faltas permanentes — o fusível funde antes do bloqueio do religador).
+        Consultar as curvas TCC do fabricante.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ ABA RELÉS ══════ -->
+  <div x-show="tab === 'reles'" class="space-y-4">
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+      <strong>Como usar:</strong>
+      Cada linha representa uma função de proteção para um ponto/elemento do sistema.
+      Os valores "Sugerido" são calculados automaticamente pelo engine; os valores "Confirmado" são os ajustes finais definidos pelo engenheiro.
+      Clique em "Salvar Relés" para persistir os ajustes.
+    </div>
+
+    <!-- Tabela de funções ANSI -->
+    <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <div class="bg-bk-navy px-4 py-2.5 flex items-center justify-between">
+        <h3 class="text-white font-semibold text-sm">Parametrização de Relés — IEC 60255-151 / ANSI/IEEE C37.112</h3>
+        <button @click="addRelay()" class="text-xs bg-white text-bk-navy px-3 py-1 rounded font-medium hover:bg-gray-100 transition">
+          + Nova função
+        </button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full engineering-table" style="min-width: 1600px;">
+          <thead>
+            <tr>
+              <th class="px-2 py-2 w-8">#</th>
+              <th class="px-2 py-2 w-24">Ponto/Tag</th>
+              <th class="px-2 py-2 w-20">Função ANSI</th>
+              <th class="px-2 py-2 w-32">Localização</th>
+              <th class="px-2 py-2 w-24">TC (relação)</th>
+              <th class="px-2 py-2 w-20">TC Classe</th>
+              <th class="px-2 py-2 w-24">TP (relação)</th>
+              <th class="px-2 py-2 w-32">Modelo Relé</th>
+              <th class="px-2 py-2 w-20">Pickup prim [A]</th>
+              <th class="px-2 py-2 w-20">Pickup sec [A]</th>
+              <th class="px-2 py-2 w-16">TMS / TD</th>
+              <th class="px-2 py-2 w-24">Curva</th>
+              <th class="px-2 py-2 w-20">t@Icc3φ [s]</th>
+              <th class="px-2 py-2 w-20">t@Icc2φ [s]</th>
+              <th class="px-2 py-2 w-20">t@Icc1φ [s]</th>
+              <th class="px-2 py-2 w-24">Pickup conf. [A]</th>
+              <th class="px-2 py-2 w-16">TMS conf.</th>
+              <th class="px-2 py-2 w-28">Notas</th>
+              <th class="px-2 py-2 w-8">✕</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(rel, idx) in relays" :key="rel._uid">
+              <tr>
+                <td class="px-2 py-1 text-center text-xs text-gray-400" x-text="idx+1"></td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.tag" list="element-codes"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue" placeholder="P1">
+                </td>
+                <td class="px-1 py-1">
+                  <select x-model="rel.ansi_function"
+                          class="w-full border border-gray-200 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue">
+                    <optgroup label="Sobrecorrente">
+                      <option value="50">50 — Sobrecorrente inst.</option>
+                      <option value="50N">50N — Terra inst.</option>
+                      <option value="50BF">50BF — Falha disjuntor</option>
+                      <option value="51">51 — Sobrecorrente inv.</option>
+                      <option value="51N">51N — Terra inv.</option>
+                      <option value="46">46 — Seq. negativa</option>
+                      <option value="49">49 — Proteção térmica</option>
+                    </optgroup>
+                    <optgroup label="Tensão">
+                      <option value="27">27 — Subtensão</option>
+                      <option value="59">59 — Sobretensão</option>
+                      <option value="60">60 — Balanço de tensão</option>
+                      <option value="59N">59N — Neutro/terra residual</option>
+                      <option value="64">64 — Falta à terra rotor</option>
+                    </optgroup>
+                    <optgroup label="Direcional">
+                      <option value="67">67 — SC direcional</option>
+                      <option value="67N">67N — Terra direcional</option>
+                      <option value="32">32 — Potência direcional</option>
+                    </optgroup>
+                    <optgroup label="Diferencial">
+                      <option value="87T">87T — Diferencial transformador</option>
+                      <option value="87B">87B — Diferencial barramento</option>
+                      <option value="87L">87L — Diferencial linha</option>
+                      <option value="87G">87G — Diferencial gerador</option>
+                    </optgroup>
+                    <optgroup label="Frequência / Outros">
+                      <option value="81U">81U — Subfrequência</option>
+                      <option value="81O">81O — Sobrefrequência</option>
+                      <option value="21">21 — Distância</option>
+                      <option value="25">25 — Sincronismo</option>
+                      <option value="78">78 — Perda de sincronismo</option>
+                      <option value="40">40 — Perda de campo</option>
+                      <option value="24">24 — Volt/Hz (sobrexcitação)</option>
+                    </optgroup>
+                  </select>
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.location_description"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue" placeholder="Ex: Saída SE MT">
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.ct_ratio"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue" placeholder="200/5">
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.ct_class"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue" placeholder="5P20">
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.vt_ratio"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue" placeholder="13800/115">
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.model"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue" placeholder="SEL-751 / NOJA / ...">
+                </td>
+                <!-- Pickup primário sugerido -->
+                <td class="px-2 py-1 text-center">
+                  <span class="font-mono text-xs text-indigo-700 font-semibold"
+                        x-text="rel._pickup_prim_a ? rel._pickup_prim_a.toFixed(1) + ' A' : '—'"></span>
+                </td>
+                <!-- Pickup secundário sugerido -->
+                <td class="px-2 py-1 text-center">
+                  <span class="font-mono text-xs text-indigo-700"
+                        x-text="rel._pickup_sec_a ? rel._pickup_sec_a.toFixed(2) + ' A' : '—'"></span>
+                </td>
+                <!-- TMS sugerido -->
+                <td class="px-2 py-1 text-center">
+                  <span class="font-mono text-xs text-indigo-700"
+                        x-text="rel._tms ? rel._tms.toFixed(3) : '—'"></span>
+                </td>
+                <!-- Curva -->
+                <td class="px-2 py-1 text-center">
+                  <span class="font-mono text-xs" x-text="rel._curve || '—'"></span>
+                </td>
+                <!-- t@Icc3φ, t@Icc2φ, t@Icc1φ -->
+                <td class="px-2 py-1 text-center"><span class="font-mono text-xs" x-text="rel._t3ph != null ? rel._t3ph.toFixed(3) + 's' : '—'"></span></td>
+                <td class="px-2 py-1 text-center"><span class="font-mono text-xs" x-text="rel._t2ph != null ? rel._t2ph.toFixed(3) + 's' : '—'"></span></td>
+                <td class="px-2 py-1 text-center"><span class="font-mono text-xs" x-text="rel._t1ph != null ? rel._t1ph.toFixed(3) + 's' : '—'"></span></td>
+                <!-- Confirmado: pickup -->
+                <td class="px-1 py-1">
+                  <input type="number" x-model.number="rel.confirmed_pickup_primary_a" step="0.1"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono font-bold bg-yellow-50 focus:ring-1 focus:ring-bk-orange"
+                         placeholder="Confirmar">
+                </td>
+                <!-- Confirmado: TMS -->
+                <td class="px-1 py-1">
+                  <input type="number" x-model.number="rel.confirmed_tms" step="0.001"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono font-bold bg-yellow-50 focus:ring-1 focus:ring-bk-orange"
+                         placeholder="Confirmar">
+                </td>
+                <td class="px-1 py-1">
+                  <input type="text" x-model="rel.notes"
+                         class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-bk-blue" placeholder="Observação">
+                </td>
+                <td class="px-2 py-1 text-center">
+                  <button @click="relays.splice(idx,1)" class="text-gray-300 hover:text-red-500 text-xs font-bold">✕</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <datalist id="element-codes">
+          {% for e in elements %}
+          <option value="{{ e.code }}">{{ e.code }}{% if e.name %} — {{ e.name }}{% endif %}</option>
+          {% endfor %}
+        </datalist>
+      </div>
+    </div>
+
+    <!-- Referência das funções ANSI -->
+    <details class="bg-white border border-bk-border rounded-lg shadow-sm overflow-hidden">
+      <summary class="px-4 py-3 font-semibold text-sm text-bk-navy cursor-pointer hover:bg-gray-50">
+        Referência — Funções de Proteção ANSI/IEEE (IEC 60255-151)
+      </summary>
+      <div class="px-4 pb-4">
+        <table class="w-full engineering-table text-xs">
+          <thead><tr><th>ANSI</th><th>Nome</th><th>Aplicação</th><th>Curva típica</th></tr></thead>
+          <tbody>
+            <tr><td class="font-mono font-bold">27</td><td>Subtensão</td><td>Detecta queda de tensão — proteção de motores, cargas críticas</td><td>Temporizado fixo: 0,5 a 2s</td></tr>
+            <tr><td class="font-mono font-bold">32</td><td>Potência direcional</td><td>Proteção de gerador — antirretrocesso, detecção de alimentação reversa</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">40</td><td>Perda de campo</td><td>Gerador síncrono — detecta perda de excitação (importa Var da rede)</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">46</td><td>Sequência negativa</td><td>Desequilíbrio de corrente — proteção de motores e geradores</td><td>Inversa por I2</td></tr>
+            <tr><td class="font-mono font-bold">49</td><td>Proteção térmica</td><td>Sobrecarga — protege motores e transformadores por integral I²t</td><td>Inversa longa</td></tr>
+            <tr><td class="font-mono font-bold">50</td><td>SC Instantâneo</td><td>Falta de alta corrente — atuação instantânea (&lt;50ms)</td><td>Instântaneo</td></tr>
+            <tr><td class="font-mono font-bold">50N</td><td>Terra Instantâneo</td><td>Falta fase-terra de alta corrente</td><td>Instantâneo</td></tr>
+            <tr><td class="font-mono font-bold">50BF</td><td>Falha de Disjuntor</td><td>Inicia trip backup se DJ não abrir em t (típico 0,15s)</td><td>Temporizado fixo</td></tr>
+            <tr><td class="font-mono font-bold">51</td><td>SC Temporizado</td><td>Sobrecorrente inverso — proteção principal + backup</td><td>NI / VI / EI / LI</td></tr>
+            <tr><td class="font-mono font-bold">51N</td><td>Terra Temporizado</td><td>Falta fase-terra de baixa corrente (neutro isolado ou alta Z)</td><td>NI / VI / EI</td></tr>
+            <tr><td class="font-mono font-bold">59</td><td>Sobretensão</td><td>Proteção de equipamentos — gerador isolado da rede</td><td>Temporizado fixo</td></tr>
+            <tr><td class="font-mono font-bold">59N</td><td>Sobretensão neutro</td><td>Falta fase-terra — neutro isolado (detecção por tensão residual 3V0)</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">60</td><td>Balanço de tensão</td><td>Detecta fusível de TP aberto (diferença entre enrolamentos do TP)</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">64</td><td>Terra rotor</td><td>Falta à terra no enrolamento de campo do gerador</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">67</td><td>SC Direcional</td><td>Redes malhadas — distingue falta à montante vs. jusante</td><td>NI / VI</td></tr>
+            <tr><td class="font-mono font-bold">67N</td><td>Terra Direcional</td><td>Falta fase-terra em redes malhadas</td><td>NI / VI</td></tr>
+            <tr><td class="font-mono font-bold">78</td><td>Perda de Sincronismo</td><td>Proteção de gerador — oscilação de potência (out-of-step)</td><td>—</td></tr>
+            <tr><td class="font-mono font-bold">81U</td><td>Subfrequência</td><td>Ilhamento — proteção do gerador (freq &lt; 59,5 Hz)</td><td>Temporizado fixo</td></tr>
+            <tr><td class="font-mono font-bold">81O</td><td>Sobrefrequência</td><td>Ilhamento — proteção do gerador (freq &gt; 60,5 Hz)</td><td>Temporizado fixo</td></tr>
+            <tr><td class="font-mono font-bold">87T</td><td>Diferencial trafo</td><td>Falta interna ao transformador — opera em &lt;20ms (zona diferencial)</td><td>PX / classe 5P</td></tr>
+            <tr><td class="font-mono font-bold">87B</td><td>Diferencial barra</td><td>Falta no barramento — opera em &lt;20ms</td><td>PX / alta estabilidade</td></tr>
+          </tbody>
+        </table>
+        <p class="text-xs text-gray-500 mt-2">
+          Curvas IEC 60255-151: NI = Normalmente Inversa (α=0,02, β=0,114); VI = Muito Inversa (α=1,0, β=13,5);
+          EI = Extremamente Inversa (α=2,0, β=80,0); LI = Longa Inversa (α=1,0, β=120,0).
+          Fórmula: t = TMS × β / (M^α − 1), onde M = I/Ipickup.
+        </p>
+      </div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+function equipPage() {
+  return {
+    studyId: '{{ study.id }}',
+    studyParams: {
+      v_base_kv: {{ study.v_base_kv or 13.8 }},
+      s_base_mva: {{ study.s_base_mva or 100 }},
+      frequency_hz: {{ study.frequency_hz or 60 }},
+      fault_time_s: {{ study.fault_time_s or 0.5 }},
+      voltage_factor_c: {{ study.voltage_factor_c or 1.10 }},
+      conductor_temp_c: {{ study.conductor_temp_c or 20 }},
+      z_source_r: {{ study.z_source_r_ohm or 0 }},
+      z_source_x: {{ study.z_source_x_ohm or 0 }},
+    },
+    tab: 'tc_tp',
+    calculating: false,
+    saving: false,
+    savedMsg: false,
+    calcTime: null,
+    ctResults: [],
+    vtResults: [],
+    breakerResults: [],
+    relayResults: [],
+    relays: [],
+
+    init() {
+      // Carrega relés salvos
+      const saved = {{ relays | tojson | safe }};
+      this.relays = (saved || []).map((r, i) => ({
+        _uid: r.id || String(i),
+        tag: r.tag || '',
+        ansi_function: r.ansi_function || '51',
+        location_description: r.location_description || '',
+        manufacturer: r.manufacturer || '',
+        model: r.model || '',
+        ct_ratio: r.ct_ratio || '',
+        ct_class: r.ct_class || '',
+        vt_ratio: r.vt_ratio || '',
+        confirmed_pickup_primary_a: r.confirmed_pickup_primary_a || null,
+        confirmed_tms: r.confirmed_tms || null,
+        notes: r.notes || '',
+        _pickup_prim_a: r.pickup_primary_a || null,
+        _pickup_sec_a: r.pickup_secondary_a || null,
+        _tms: r.tms || null,
+        _curve: r.curve_type || null,
+        _t3ph: null, _t2ph: null, _t1ph: null,
+      }));
+    },
+
+    addRelay() {
+      this.relays.push({
+        _uid: Math.random().toString(36),
+        tag: '', ansi_function: '51', location_description: '',
+        manufacturer: '', model: '',
+        ct_ratio: '', ct_class: '', vt_ratio: '',
+        confirmed_pickup_primary_a: null, confirmed_tms: null, notes: '',
+        _pickup_prim_a: null, _pickup_sec_a: null, _tms: null,
+        _curve: null, _t3ph: null, _t2ph: null, _t1ph: null,
+      });
+    },
+
+    async runCalcAndShow() {
+      this.calculating = true;
+      const elements = {{ elements | tojson | safe }};
+      if (!elements || elements.length === 0) {
+        alert('Nenhum elemento cadastrado. Acesse a aba "Rede / Cálculo" e adicione os trechos primeiro.');
+        this.calculating = false;
+        return;
+      }
+      const activeElems = elements.filter(e => e.is_active && (
+        (e.length_km || 0) > 0 || (e.trafo_kva || 0) > 0 ||
+        (e.r1_ohm_km || 0) > 0 || (e.gen_s_sub_mva || 0) > 0
+      ));
+      if (activeElems.length === 0) {
+        alert('Nenhum elemento com dados calculáveis. Preencha comprimento, R1/X1 ou kVA do transformador.');
+        this.calculating = false;
+        return;
+      }
+      const payload = {
+        study_id: this.studyId,
+        system: {
+          s_base_mva: this.studyParams.s_base_mva,
+          v_base_kv: this.studyParams.v_base_kv,
+          frequency_hz: this.studyParams.frequency_hz,
+          fault_time_s: this.studyParams.fault_time_s,
+          z_source_r_ohm: this.studyParams.z_source_r,
+          z_source_x_ohm: this.studyParams.z_source_x,
+          primary_connection: 'Yg',
+          k_generator: 1.0, k_motor: 1.0,
+          voltage_factor_c: this.studyParams.voltage_factor_c,
+          conductor_temp_c: this.studyParams.conductor_temp_c,
+          underground_group_factor: 1.0,
+        },
+        elements: activeElems.map((e, i) => ({
+          code: e.code, element_type: e.element_type,
+          bus_from: e.bus_from || `P${i}`, bus_to: e.bus_to || `P${i+1}`,
+          voltage_kv: e.voltage_kv || this.studyParams.v_base_kv,
+          length_km: e.length_km || 0,
+          r1_ohm_km: e.r1_ohm_km || 0, x1_ohm_km: e.x1_ohm_km || 0,
+          r0_ohm_km: e.r0_ohm_km || null, x0_ohm_km: e.x0_ohm_km || null,
+          trafo_kva: e.trafo_kva || 0, trafo_z_percent: e.trafo_z_percent || 0,
+          trafo_connection: e.trafo_connection || 'Yg-Yg',
+          trafo_voltage_sec_kv: e.trafo_voltage_sec_kv || 0,
+          gen_s_sub_mva: e.gen_s_sub_mva || 0, gen_xpp_percent: e.gen_xpp_percent || 0,
+          motor_s_mva: e.motor_s_mva || 0, motor_xpp_percent: e.motor_xpp_percent || 0,
+          nominal_current_a: 0, is_active: true,
+        })),
+        calculate_inrush: true, calculate_protection_settings: true, calculate_sizing: true,
+      };
+      try {
+        const resp = await fetch('/api/calculations/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(()=>({}));
+          throw new Error(err.detail || 'Erro ' + resp.status);
+        }
+        const data = await resp.json();
+        this.ctResults = data.ct_sizing || [];
+        this.vtResults = data.vt_sizing || [];
+        this.breakerResults = data.breaker_sizing || [];
+        this.relayResults = data.relay_settings || [];
+        this.calcTime = new Date().toLocaleTimeString('pt-BR');
+        // Preenche relés com sugestões (se não há relés salvos)
+        if (this.relays.length === 0 && this.relayResults.length > 0) {
+          this.relays = this.relayResults.map(r => ({
+            _uid: Math.random().toString(36),
+            tag: r.element_code, ansi_function: r.ansi_function,
+            location_description: '', manufacturer: '', model: '',
+            ct_ratio: '', ct_class: '', vt_ratio: '',
+            confirmed_pickup_primary_a: null, confirmed_tms: null, notes: '',
+            _pickup_prim_a: r.pickup_primary_ka * 1000,
+            _pickup_sec_a: r.pickup_secondary_a,
+            _tms: r.tms_suggested,
+            _curve: r.curve_type,
+            _t3ph: r.t_at_icc_3ph_s, _t2ph: r.t_at_icc_2ph_s, _t1ph: r.t_at_icc_1ph_s,
+          }));
+        } else {
+          // Atualiza apenas os valores sugeridos nos relés existentes
+          const rmap = {};
+          this.relayResults.forEach(r => { rmap[r.element_code + '_' + r.ansi_function] = r; });
+          this.relays.forEach(rel => {
+            const key = rel.tag + '_' + rel.ansi_function;
+            const calc = rmap[key];
+            if (calc) {
+              rel._pickup_prim_a = calc.pickup_primary_ka * 1000;
+              rel._pickup_sec_a = calc.pickup_secondary_a;
+              rel._tms = calc.tms_suggested;
+              rel._curve = calc.curve_type;
+              rel._t3ph = calc.t_at_icc_3ph_s;
+              rel._t2ph = calc.t_at_icc_2ph_s;
+              rel._t1ph = calc.t_at_icc_1ph_s;
+            }
+          });
+        }
+      } catch(e) {
+        alert('Erro: ' + e.message);
+      } finally {
+        this.calculating = false;
+      }
+    },
+
+    async saveRelays() {
+      this.saving = true;
+      try {
+        const resp = await fetch(`/api/studies/${this.studyId}/relays`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            relays: this.relays.map(r => ({
+              tag: r.tag,
+              ansi_function: r.ansi_function,
+              location_description: r.location_description,
+              manufacturer: r.manufacturer,
+              model: r.model,
+              ct_ratio: r.ct_ratio,
+              ct_class: r.ct_class,
+              vt_ratio: r.vt_ratio,
+              pickup_primary_a: r._pickup_prim_a,
+              pickup_secondary_a: r._pickup_sec_a,
+              tms: r._tms,
+              curve_type: r._curve,
+              confirmed_pickup_primary_a: r.confirmed_pickup_primary_a,
+              confirmed_tms: r.confirmed_tms,
+              notes: r.notes,
+            }))
+          }),
+        });
+        if (resp.ok) {
+          this.savedMsg = true;
+          setTimeout(() => this.savedMsg = false, 3000);
+        } else {
+          alert('Erro ao salvar.');
+        }
+      } catch(e) {
+        alert('Erro: ' + e.message);
+      } finally {
+        this.saving = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

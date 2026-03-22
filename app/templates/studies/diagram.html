@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}Diagrama Unifilar — {{ study.study_type }}{% endblock %}
+{% block page_title %}Diagrama Unifilar{% endblock %}
+{% block page_subtitle %}{{ study.study_type }} | {{ study.v_base_kv }} kV | Gerado automaticamente a partir dos trechos cadastrados{% endblock %}
+
+{% block content %}
+<div x-data="diagramPage()" x-init="init()">
+
+  <!-- ─── Navegação ────────────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-2 mb-4 text-sm">
+    <a href="/projects/{{ study.project_id }}" class="text-gray-400 hover:text-bk-navy flex items-center gap-1 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+      </svg>
+      Projeto
+    </a>
+    <span class="text-gray-300">|</span>
+    <div class="flex gap-1 border-b border-gray-200 flex-1">
+      <a href="/studies/{{ study.id }}/system-data" class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Parâmetros</a>
+      <a href="/studies/{{ study.id }}/network" class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Rede / Cálculo</a>
+      <a href="/studies/{{ study.id }}/equipment" class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Equipamentos / Relés</a>
+      <span class="px-4 py-2 text-xs font-semibold text-bk-navy border-b-2 border-bk-navy bg-blue-50 rounded-t-md">Diagrama Unifilar</span>
+      <a href="/reports/{{ study.id }}/html" target="_blank" class="px-4 py-2 text-xs font-medium text-gray-500 hover:text-bk-navy rounded-t-md border-b-2 border-transparent">Relatório</a>
+    </div>
+  </div>
+
+  <!-- ─── Toolbar ─────────────────────────────────────────────────────────── -->
+  <div class="bg-white border border-bk-border rounded-lg p-3 mb-4 flex items-center gap-3">
+    <button @click="exportSVG()"
+            class="flex items-center gap-2 bg-bk-navy text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-blue-900 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Exportar SVG
+    </button>
+    <div class="flex items-center gap-2 ml-4">
+      <label class="text-xs text-gray-600">Zoom:</label>
+      <input type="range" x-model.number="zoom" min="50" max="200" step="10" class="w-24">
+      <span class="text-xs font-mono text-gray-600" x-text="zoom + '%'"></span>
+    </div>
+    <div class="flex items-center gap-2">
+      <label class="text-xs text-gray-600 flex items-center gap-1">
+        <input type="checkbox" x-model="showZones" class="rounded"> Mostrar zonas de proteção
+      </label>
+    </div>
+    <div class="ml-auto">
+      <div class="flex items-center gap-3 text-xs">
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-blue-600 inline-block"></span> AT (≥ 36 kV)</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-orange-500 inline-block"></span> MT (1–36 kV)</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-green-600 inline-block"></span> BT (≤ 1 kV)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Diagrama SVG ────────────────────────────────────────────────────── -->
+  <div class="bg-white border border-bk-border rounded-lg shadow-sm overflow-auto p-4">
+    <div :style="'transform: scale(' + zoom/100 + '); transform-origin: top left;'">
+      <svg id="unifilar-svg" xmlns="http://www.w3.org/2000/svg"
+           :width="svgWidth" :height="svgHeight"
+           style="font-family: monospace; background: white; border: 1px solid #e2e8f0;">
+
+        <!-- Defs: marcadores de seta, etc. -->
+        <defs>
+          <marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L6,3 z" fill="#64748b"/>
+          </marker>
+          <pattern id="zone-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#93c5fd" stroke-width="1" stroke-opacity="0.4"/>
+          </pattern>
+        </defs>
+
+        <!-- Título do diagrama -->
+        <text :x="svgWidth/2" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a3a5c">
+          DIAGRAMA UNIFILAR — <tspan x-text="studyName"></tspan>
+        </text>
+        <text :x="svgWidth/2" y="46" text-anchor="middle" font-size="10" fill="#666">
+          <tspan x-text="'Sistema: ' + studyV + ' kV | Gerado em: ' + genDate"></tspan>
+        </text>
+
+        <!-- Linha de grade horizontal separadora -->
+        <line :x1="20" :y1="58" :x2="svgWidth-20" :y2="58" stroke="#e2e8f0" stroke-width="1"/>
+
+        <!-- Fonte / Concessionária no topo -->
+        <g transform="translate(0,0)">
+          <template x-if="elements.length >= 0">
+            <g :transform="'translate(' + centerX + ', 75)'">
+              <!-- Símbolo: rede de suprimento (triângulo invertido + linha) -->
+              <polygon points="0,-18 -16,10 16,10" fill="none" stroke="#1a3a5c" stroke-width="2"/>
+              <line x1="0" y1="10" x2="0" y2="25" stroke="#1a3a5c" stroke-width="3"/>
+              <text x="22" y="-8" font-size="10" fill="#1a3a5c" font-weight="bold">P0 — Fonte/Concessionária</text>
+              <text x="22" y="5" font-size="9" fill="#64748b">
+                <tspan x-text="'Scc: ' + (sccMva > 0 ? sccMva.toFixed(0) + ' MVA' : 'Não informado')"></tspan>
+              </text>
+              <text x="22" y="18" font-size="9" fill="#64748b">
+                <tspan x-text="'Zcc: R=' + zr.toFixed(4) + ' Ω  X=' + zx.toFixed(4) + ' Ω'"></tspan>
+              </text>
+            </g>
+          </template>
+        </g>
+
+        <!-- Elementos da rede -->
+        <template x-for="(elem, idx) in elements" :key="elem.id || idx">
+          <g :transform="'translate(' + centerX + ',' + elemY(idx) + ')'">
+
+            <!-- Linha de conexão com o elemento anterior -->
+            <line x1="0" y1="-20" x2="0" y2="-4"
+                  :stroke="voltageColor(elem.voltage_kv)"
+                  stroke-width="2.5"
+                  marker-end="url(#arrow)"/>
+
+            <!-- Zona de proteção (se ativado) -->
+            <template x-if="showZones && (elem.element_type === 'transformador' || elem.element_type === 'linha' || elem.element_type === 'cabo')">
+              <ellipse cx="0" cy="20" rx="60" ry="30" fill="url(#zone-hatch)" stroke="#93c5fd" stroke-width="1" stroke-dasharray="4,2" opacity="0.6"/>
+            </template>
+
+            <!-- Símbolo do elemento conforme tipo -->
+
+            <!-- LINHA / CABO / ALIMENTADOR -->
+            <template x-if="elem.element_type === 'linha' || elem.element_type === 'cabo' || elem.element_type === 'alimentador'">
+              <g>
+                <!-- Símbolo: retângulo representando trecho -->
+                <rect x="-28" y="-3" width="56" height="20" rx="2"
+                      :fill="voltageColor(elem.voltage_kv) + '22'"
+                      :stroke="voltageColor(elem.voltage_kv)"
+                      stroke-width="1.5"/>
+                <text x="0" y="12" text-anchor="middle" font-size="9" :fill="voltageColor(elem.voltage_kv)" font-weight="bold"
+                      x-text="elem.element_type === 'cabo' ? 'CABO' : elem.element_type === 'alimentador' ? 'ALIM.' : 'LINHA'"></text>
+                <!-- Tag e dados -->
+                <text x="38" y="2" font-size="10" font-weight="bold" fill="#1a3a5c" x-text="elem.code || ('P' + (idx+1))"></text>
+                <text x="38" y="13" font-size="9" fill="#64748b"
+                      x-text="elem.name ? elem.name.substring(0,28) : ''"></text>
+                <text x="-38" y="2" text-anchor="end" font-size="9" fill="#334155"
+                      x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
+                <text x="-38" y="13" text-anchor="end" font-size="9" fill="#64748b"
+                      x-text="(elem.length_km > 0 ? elem.length_km.toFixed(2) + ' km' : '') + (elem.cable_name ? '  ' + elem.cable_name : '')"></text>
+              </g>
+            </template>
+
+            <!-- TRANSFORMADOR -->
+            <template x-if="elem.element_type === 'transformador'">
+              <g>
+                <!-- Símbolo: dois círculos sobrepostos (transformador monofásico equivalente) -->
+                <circle cx="-7" cy="5" r="12" fill="none" stroke="#e07b39" stroke-width="2"/>
+                <circle cx="7" cy="5" r="12" fill="none" stroke="#e07b39" stroke-width="2"/>
+                <!-- Tag -->
+                <text x="32" y="-2" font-size="10" font-weight="bold" fill="#1a3a5c" x-text="elem.code || ('TR-' + (idx+1))"></text>
+                <text x="32" y="9" font-size="9" fill="#64748b"
+                      x-text="elem.name ? elem.name.substring(0,28) : ''"></text>
+                <text x="-28" y="-2" text-anchor="end" font-size="9" fill="#e07b39" font-weight="bold"
+                      x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
+                <text x="-28" y="9" text-anchor="end" font-size="9" fill="#64748b"
+                      x-text="elem.trafo_kva ? elem.trafo_kva.toFixed(0) + ' kVA | %Z=' + (elem.trafo_z_percent||0).toFixed(1) + '%' : ''"></text>
+                <!-- Seta indicando mudança de tensão -->
+                <template x-if="elem.trafo_voltage_sec_kv > 0">
+                  <text x="32" y="22" font-size="8" fill="#e07b39"
+                        x-text="'→ ' + elem.trafo_voltage_sec_kv + ' kV'"></text>
+                </template>
+              </g>
+            </template>
+
+            <!-- DISJUNTOR -->
+            <template x-if="elem.element_type === 'disjuntor'">
+              <g>
+                <rect x="-8" y="-6" width="16" height="18" rx="2" fill="white" stroke="#dc2626" stroke-width="2"/>
+                <text x="0" y="8" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="bold">DJ</text>
+                <text x="18" y="2" font-size="10" font-weight="bold" fill="#dc2626" x-text="elem.code || ('DJ-' + (idx+1))"></text>
+                <text x="18" y="12" font-size="9" fill="#64748b" x-text="elem.name || ''"></text>
+              </g>
+            </template>
+
+            <!-- SECCIONADORA -->
+            <template x-if="elem.element_type === 'seccionadora'">
+              <g>
+                <rect x="-10" y="-4" width="20" height="14" rx="1" fill="white" stroke="#7c3aed" stroke-width="1.5"/>
+                <text x="0" y="7" text-anchor="middle" font-size="7" fill="#7c3aed" font-weight="bold">SEC</text>
+                <text x="18" y="2" font-size="10" font-weight="bold" fill="#7c3aed" x-text="elem.code || ('S-' + (idx+1))"></text>
+                <text x="18" y="12" font-size="9" fill="#64748b" x-text="elem.name || ''"></text>
+              </g>
+            </template>
+
+            <!-- BARRA / BARRAMENTO -->
+            <template x-if="elem.element_type === 'barra'">
+              <g>
+                <line x1="-70" y1="6" x2="70" y2="6" :stroke="voltageColor(elem.voltage_kv)" stroke-width="5"/>
+                <text x="80" y="10" font-size="10" font-weight="bold" :fill="voltageColor(elem.voltage_kv)"
+                      x-text="elem.code || ('BRR-' + (idx+1))"></text>
+                <text x="80" y="22" font-size="9" fill="#64748b" x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
+              </g>
+            </template>
+
+            <!-- GERADOR -->
+            <template x-if="elem.element_type === 'gerador'">
+              <g>
+                <circle cx="0" cy="5" r="14" fill="none" stroke="#059669" stroke-width="2"/>
+                <text x="0" y="9" text-anchor="middle" font-size="11" fill="#059669" font-weight="bold">G</text>
+                <text x="22" y="2" font-size="10" font-weight="bold" fill="#059669" x-text="elem.code || ('GER-' + (idx+1))"></text>
+                <text x="22" y="14" font-size="9" fill="#64748b"
+                      x-text="elem.gen_s_sub_mva ? (elem.gen_s_sub_mva * 1000).toFixed(0) + ' kVA | X\'\'=' + (elem.gen_xpp_percent||0).toFixed(1) + '%' : ''"></text>
+              </g>
+            </template>
+
+            <!-- MOTOR -->
+            <template x-if="elem.element_type === 'motor'">
+              <g>
+                <circle cx="0" cy="5" r="14" fill="none" stroke="#0284c7" stroke-width="2"/>
+                <text x="0" y="9" text-anchor="middle" font-size="11" fill="#0284c7" font-weight="bold">M</text>
+                <text x="22" y="2" font-size="10" font-weight="bold" fill="#0284c7" x-text="elem.code || ('MOT-' + (idx+1))"></text>
+                <text x="22" y="14" font-size="9" fill="#64748b"
+                      x-text="elem.motor_s_mva ? (elem.motor_s_mva * 1000).toFixed(0) + ' kVA' : ''"></text>
+              </g>
+            </template>
+
+            <!-- CARGA genérica -->
+            <template x-if="elem.element_type === 'carga'">
+              <g>
+                <polygon points="0,-6 -12,12 12,12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+                <text x="20" y="4" font-size="10" font-weight="bold" fill="#16a34a" x-text="elem.code || ('CARGA-' + (idx+1))"></text>
+              </g>
+            </template>
+
+            <!-- Linha após o elemento (para próximos) -->
+            <line x1="0" y1="25" x2="0" y2="42"
+                  :stroke="voltageColor(elem.element_type === 'transformador' && elem.trafo_voltage_sec_kv > 0 ? elem.trafo_voltage_sec_kv : (elem.voltage_kv || studyV))"
+                  stroke-width="2.5" opacity="0.4"/>
+          </g>
+        </template>
+
+        <!-- Ponto de carga final -->
+        <template x-if="elements.length > 0">
+          <g :transform="'translate(' + centerX + ',' + (elemY(elements.length) + 10) + ')'">
+            <line x1="-25" y1="0" x2="25" y2="0" stroke="#94a3b8" stroke-width="3"/>
+            <line x1="-10" y1="8" x2="10" y2="8" stroke="#94a3b8" stroke-width="2"/>
+            <line x1="-4" y1="14" x2="4" y2="14" stroke="#94a3b8" stroke-width="1.5"/>
+            <text x="0" y="26" text-anchor="middle" font-size="9" fill="#94a3b8">Ponto final / Carga</text>
+          </g>
+        </template>
+
+        <!-- Sem elementos -->
+        <template x-if="elements.length === 0">
+          <text x="50%" y="180" text-anchor="middle" font-size="13" fill="#94a3b8">
+            Nenhum elemento cadastrado. Acesse "Rede / Cálculo" para adicionar trechos.
+          </text>
+        </template>
+
+        <!-- Legenda -->
+        <g :transform="'translate(20,' + (svgHeight - 80) + ')'">
+          <rect x="0" y="0" :width="svgWidth - 40" height="70" rx="4" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="10" y="16" font-size="9" font-weight="bold" fill="#334155">LEGENDA:</text>
+          <g transform="translate(10,25)">
+            <polygon points="0,-6 -8,6 8,6" fill="none" stroke="#1a3a5c" stroke-width="1.5"/>
+            <text x="14" y="4" font-size="9" fill="#334155">Fonte/Concessionária</text>
+          </g>
+          <g transform="translate(140,25)">
+            <rect x="-12" y="-6" width="24" height="14" rx="2" fill="#e07b3922" stroke="#e07b39" stroke-width="1.5"/>
+            <text x="0" y="4" text-anchor="middle" font-size="8" fill="#e07b39">TRF</text>
+            <text x="20" y="4" font-size="9" fill="#334155">Transformador</text>
+          </g>
+          <g transform="translate(280,25)">
+            <circle cx="0" cy="2" r="8" fill="none" stroke="#059669" stroke-width="1.5"/>
+            <text x="0" y="5" text-anchor="middle" font-size="8" fill="#059669" font-weight="bold">G</text>
+            <text x="16" y="4" font-size="9" fill="#334155">Gerador</text>
+          </g>
+          <g transform="translate(380,25)">
+            <rect x="-6" y="-5" width="12" height="14" rx="1" fill="white" stroke="#dc2626" stroke-width="1.5"/>
+            <text x="0" y="5" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="bold">DJ</text>
+            <text x="14" y="4" font-size="9" fill="#334155">Disjuntor</text>
+          </g>
+          <g transform="translate(10, 50)">
+            <text x="0" y="0" font-size="8" fill="#64748b">
+              Diagrama esquemático radial — BK_Estudo_Proteção v2 | ABNT NBR 5444 | IEC 60617
+            </text>
+          </g>
+        </g>
+
+        <!-- Carimbo -->
+        <g :transform="'translate(' + (svgWidth - 220) + ', 65)'">
+          <rect x="0" y="0" width="200" height="52" rx="2" fill="white" stroke="#e2e8f0"/>
+          <text x="4" y="14" font-size="7" fill="#64748b">Elaborado por: ________________________ CREA: ___________</text>
+          <text x="4" y="26" font-size="7" fill="#64748b">Data: ________ / Revisão: ________</text>
+          <line x1="0" y1="31" x2="200" y2="31" stroke="#e2e8f0"/>
+          <text x="4" y="42" font-size="7" fill="#64748b">Verificado: ________________________ Aprovado: ___________</text>
+        </g>
+
+      </svg>
+    </div>
+  </div>
+
+  <!-- Aviso -->
+  <div class="alert-technical text-xs mt-3">
+    <strong>AVISO:</strong> Este diagrama unifilar é ESQUEMÁTICO e gerado automaticamente a partir dos dados cadastrados.
+    Não substitui o projeto elétrico executivo. O diagrama oficial deve ser elaborado em CAD (AutoCAD, SEE/EE, etc.)
+    com os símbolos normativos completos (ABNT NBR 5444 / IEC 60617) e aprovado pelo engenheiro responsável (CREA).
+  </div>
+
+</div>
+
+<script>
+function diagramPage() {
+  const ELEM_SPACING = 85;
+  const HEADER_OFFSET = 140;
+
+  return {
+    studyId: '{{ study.id }}',
+    studyName: '{{ study.study_type | replace("'", "\\'") }}',
+    studyV: {{ study.v_base_kv or 13.8 }},
+    sccMva: {{ study.short_circuit_mva_source or 0 }},
+    zr: {{ study.z_source_r_ohm or 0 }},
+    zx: {{ study.z_source_x_ohm or 0 }},
+    genDate: new Date().toLocaleDateString('pt-BR'),
+    zoom: 100,
+    showZones: false,
+    elements: {{ elements | tojson | safe }},
+
+    get centerX() { return 320; },
+    get svgWidth() { return Math.max(700, this.centerX * 2); },
+    get svgHeight() {
+      return HEADER_OFFSET + this.elements.length * ELEM_SPACING + 160;
+    },
+
+    elemY(idx) {
+      return HEADER_OFFSET + 20 + idx * ELEM_SPACING;
+    },
+
+    voltageColor(v) {
+      const kv = parseFloat(v) || this.studyV;
+      if (kv >= 36) return '#2563eb';       // AT: azul
+      if (kv >= 1) return '#ea580c';        // MT: laranja
+      return '#16a34a';                     // BT: verde
+    },
+
+    init() {
+      // Filtra apenas elementos ativos
+      this.elements = this.elements.filter(e => e.is_active !== false);
+    },
+
+    exportSVG() {
+      const svg = document.getElementById('unifilar-svg');
+      if (!svg) return;
+      const data = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `unifilar_bk_${this.studyId.substring(0,8)}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+  };
+}
+</script>
+{% endblock %}
