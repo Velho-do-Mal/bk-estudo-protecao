@@ -16,7 +16,7 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
-from streamlit_app import _init_state
+from st_utils import _init_state, require_login, sidebar_nav
 
 st.set_page_config(page_title="Rede & Cálculo — BK Proteção", page_icon="⚡", layout="wide")
 _init_state()
@@ -35,9 +35,7 @@ with st.sidebar:
         st.session_state.user = None
         st.switch_page("streamlit_app.py")
 
-if not st.session_state.user:
-    st.switch_page("streamlit_app.py")
-    st.stop()
+require_login()
 
 if not st.session_state.current_study_id:
     st.warning("Nenhum estudo selecionado.")

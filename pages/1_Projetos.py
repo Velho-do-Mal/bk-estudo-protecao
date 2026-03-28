@@ -3,27 +3,12 @@ pages/1_Projetos.py — Lista e gerencia projetos.
 """
 
 import streamlit as st
-from streamlit_app import _init_state
+from st_utils import _init_state, require_login, sidebar_nav
 
 st.set_page_config(page_title="Projetos — BK Proteção", page_icon="📁", layout="wide")
 _init_state()
-
-# Sidebar com user info e logout
-with st.sidebar:
-    st.markdown("### ⚡ BK Estudo Proteção")
-    if st.session_state.user:
-        st.markdown(f"👤 **{st.session_state.user['full_name']}**")
-        st.caption(st.session_state.user['role'])
-    st.divider()
-    if st.button("🚪 Sair", use_container_width=True):
-        st.session_state.user = None
-        st.switch_page("streamlit_app.py")
-
-# Guard: usuário deve estar logado
-if not st.session_state.user:
-    st.warning("Faça login para continuar.")
-    st.switch_page("streamlit_app.py")
-    st.stop()
+require_login()
+sidebar_nav()
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown("## 📁 Projetos")

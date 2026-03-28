@@ -4,6 +4,7 @@ Página de login / entrada do app.
 """
 
 import streamlit as st
+from st_utils import _init_state, inject_css
 
 st.set_page_config(
     page_title="BK Estudo de Proteção",
@@ -12,37 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CSS global
-st.markdown("""
-<style>
-    .main-header { color: #1a3a5c; font-size: 2rem; font-weight: 700; }
-    .subtitle { color: #6b7280; font-size: 0.9rem; margin-top: -0.5rem; }
-    .bk-card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; }
-    .result-ok { color: #16a34a; font-weight: 600; }
-    .result-warn { color: #d97706; font-weight: 600; }
-    .aviso-tecnico { background: #fff7ed; border-left: 4px solid #e07b39; padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.82rem; margin: 0.5rem 0; }
-    div[data-testid="stDataFrameResizable"] { border: 1px solid #e5e7eb; border-radius: 6px; }
-    section[data-testid="stSidebar"] { background-color: #1a3a5c; }
-    section[data-testid="stSidebar"] .stMarkdown,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] .stSelectbox label { color: #e2e8f0 !important; }
-</style>
-""", unsafe_allow_html=True)
-
-
-def _init_state():
-    defaults = {
-        "user": None,
-        "current_project_id": None,
-        "current_project_name": "",
-        "current_study_id": None,
-        "current_study_name": "",
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-
+inject_css()
 _init_state()
 
 # ── Se já logado, redireciona para projetos ───────────────────────────────────
