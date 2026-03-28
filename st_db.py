@@ -27,7 +27,20 @@ def _build_db_url(url: str) -> str:
                 break
     return url
 
-_db_url = _build_db_url(settings.DATABASE_URL_SYNC)
+def _get_db_url() -> str:
+    """Lê a URL do banco: primeiro st.secrets (Streamlit Cloud), depois settings (.env local)."""
+    # Tenta st.secrets (disponível no Streamlit Cloud)
+    try:
+        import streamlit as st
+        raw = st.secrets.get("DATABASE_URL_SYNC") or st.secrets.get("DATABASE_URL")
+        if raw:
+            return _build_db_url(str(raw))
+    except Exception:
+        pass
+    # Fallback: .env local via pydantic-settings
+    return _build_db_url(settings.DATABASE_URL_SYNC)
+
+_db_url = _get_db_url()
 
 engine = create_engine(
     _db_url,
