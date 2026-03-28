@@ -264,11 +264,33 @@ def build_coordenograma_from_results(
 
     for idx, rs in enumerate(relay_settings):
         if rs.pickup_primary_ka <= 0:
-            continue
-        curve_params = get_curve(rs.curve_type or "NI")
-        if curve_params is None:
+            # Funções informativas sem pickup de corrente (85, 79, 25, 21): ignorar no coordenograma
             continue
 
+        # ─── Relés instantâneos (50, 50N): linha horizontal no coordenograma ──
+        # Atenção: curve_type="—" para instantâneos → get_curve retorna None.
+        # O tratamento deve ser feito ANTES do check de curve_params is None.
+        if rs.ansi_function in ("50", "50N"):
+            i_inst_max = max(rs.pickup_primary_ka * 20, rs.pickup_primary_ka + 1.0)
+            all_currents_ka.extend([rs.pickup_primary_ka, i_inst_max])
+            t_op = getattr(rs, "t_at_icc_3ph_s", None) or 0.05
+            curves.append(CurveData(
+                label=f"{rs.ansi_function} — {rs.element_code} | Ip={rs.pickup_primary_ka:.3f} kA",
+                currents_ka=[rs.pickup_primary_ka, i_inst_max],
+                times_s=[t_op, t_op],
+                color=BK_COLORS[idx % len(BK_COLORS)],
+                linestyle="--",
+                linewidth=1.5,
+            ))
+            continue  # sem curva TMS para relés instantâneos
+
+        # ─── Funções sem curva de corrente-tempo (21, 46, 87T, 87L, 85, 79, 25) ─
+        curve_params = get_curve(rs.curve_type or "NI")
+        if curve_params is None:
+            # Sem curva plotável — apenas registra marcador de pickup se aplicável
+            continue
+
+        # ─── Relés temporizados com curva IEC (51, 51N, 67, 67N) ─────────────
         tms = rs.tms_suggested if rs.tms_suggested > 0 else 0.1
         icc_ref = getattr(rs, "icc_3ph_ka", 0.0) or 0.0
         i_max_plot = max(
@@ -294,17 +316,6 @@ def build_coordenograma_from_results(
                 times_s=times,
                 color=BK_COLORS[idx % len(BK_COLORS)],
                 linewidth=2.0 if idx == 0 else 1.5,
-            ))
-
-        # Ponto de pickup (marcador instantâneo)
-        if rs.ansi_function == "50" and rs.pickup_primary_ka > 0:
-            curves.append(CurveData(
-                label=f"50 — {rs.element_code} | Ip={rs.pickup_primary_ka:.3f} kA",
-                currents_ka=[rs.pickup_primary_ka, rs.pickup_primary_ka * 20],
-                times_s=[0.05, 0.05],
-                color=BK_COLORS[idx % len(BK_COLORS)],
-                linestyle="--",
-                linewidth=1.5,
             ))
 
     # Adiciona marcadores de corrente de falta

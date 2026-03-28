@@ -16,6 +16,7 @@ Responsável por:
 from __future__ import annotations
 
 import math
+import traceback as _traceback
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -146,17 +147,52 @@ class CalculationService:
 
         # 4. Sugestões de ajuste de relés
         relay_results: list[RelaySettingOutput] = []
+        relay_errors: list[str] = []
         if request.calculate_protection_settings:
-            relay_results = _suggest_all_relay_settings(active_elements, sc_results_raw)
+            try:
+                relay_results, relay_errors = _suggest_all_relay_settings(
+                    active_elements, sc_results_raw
+                )
+                global_warnings.extend(relay_errors)
+                if not relay_results and not relay_errors:
+                    global_warnings.append(
+                        "[DIAGNÓSTICO] Nenhum relé gerado. Possível causa: todos os elementos "
+                        "têm Icc3φ = 0 ou códigos não mapeados nos resultados de curto."
+                    )
+                elif not relay_results and relay_errors:
+                    global_warnings.append(
+                        f"[RELÉS] {len(relay_errors)} erro(s) ao calcular ajustes de relés. "
+                        "Veja avisos abaixo para detalhes."
+                    )
+            except Exception as exc:
+                tb = _traceback.format_exc()
+                global_warnings.append(
+                    f"[ERRO CRÍTICO — RELÉS] Exceção não tratada em _suggest_all_relay_settings: "
+                    f"{exc}\n{tb}"
+                )
 
         # 5. Dimensionamento de equipamentos
         ct_results: list[CTSizingOutput] = []
         vt_results: list[VTSizingOutput] = []
         breaker_results: list[BreakerSizingOutput] = []
+        sizing_errors: list[str] = []
         if request.calculate_sizing:
-            ct_results, vt_results, breaker_results = _size_all_equipment(
-                active_elements, sc_results_raw, system
-            )
+            try:
+                ct_results, vt_results, breaker_results, sizing_errors = _size_all_equipment(
+                    active_elements, sc_results_raw, system
+                )
+                global_warnings.extend(sizing_errors)
+                if not ct_results and not vt_results and not breaker_results and not sizing_errors:
+                    global_warnings.append(
+                        "[DIAGNÓSTICO] Nenhum equipamento dimensionado. Possível causa: "
+                        "todos os elementos sem corrente de carga ou Icc3φ = 0."
+                    )
+            except Exception as exc:
+                tb = _traceback.format_exc()
+                global_warnings.append(
+                    f"[ERRO CRÍTICO — DIMENSIONAMENTO] Exceção não tratada em _size_all_equipment: "
+                    f"{exc}\n{tb}"
+                )
 
         # 6. Coordenograma — passa relay_results para plotar as curvas de proteção
         coord_b64 = None
@@ -302,177 +338,209 @@ def _ct_primary_for_load(i_load_a: float) -> float:
     return CT_PRIMARY_SERIES_A[-1]
 
 
-def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySettingOutput]:
-    """Gera sugestões de relés para elementos com corrente de curto calculada."""
-    relay_results = []
+def _suggest_all_relay_settings(
+    active_elements, sc_results_raw
+) -> tuple[list[RelaySettingOutput], list[str]]:
+    """
+    Gera sugestões de relés para elementos com corrente de curto calculada.
+    Retorna (relay_results, errors) onde errors é lista de strings diagnósticas.
+    """
+    relay_results: list[RelaySettingOutput] = []
+    errors: list[str] = []
     results_map = {r.element_code: r for r in sc_results_raw}
 
+    # Diagnóstico: mostrar quais códigos estão disponíveis
+    available_codes = list(results_map.keys())
+
     for elem in active_elements:
-        raw = results_map.get(elem.code)
-        if raw is None:
-            continue
+        try:
+            raw = results_map.get(elem.code)
+            if raw is None:
+                errors.append(
+                    f"[RELÉ-SKIP] Elemento '{elem.code}' (tipo={elem.element_type.value}) "
+                    f"não encontrado em sc_results_raw. "
+                    f"Códigos disponíveis: {available_codes}. "
+                    f"Possível causa: elemento não alcançado pelo BFS (bus_from='{elem.bus_from}' "
+                    f"não conectado à fonte)."
+                )
+                continue
 
-        icc3 = raw.icc_3ph_ka
-        icc2 = raw.icc_2ph_ka
-        icc1 = raw.icc_1ph_ka
+            icc3 = raw.icc_3ph_ka
+            icc2 = raw.icc_2ph_ka
+            icc1 = raw.icc_1ph_ka
 
-        # Corrente nominal estimada a partir dos dados do elemento
-        i_load_ka = 0.0
-        if elem.trafo_kva > 0 and elem.voltage_kv > 0:
-            i_load_ka = (elem.trafo_kva / 1000.0) / (math.sqrt(3) * elem.voltage_kv)
-        elif elem.load_mva > 0 and elem.voltage_kv > 0:
-            i_load_ka = elem.load_mva / (math.sqrt(3) * elem.voltage_kv)
-        elif elem.nominal_current_a > 0:
-            i_load_ka = elem.nominal_current_a / 1000.0
+            # Corrente nominal estimada a partir dos dados do elemento
+            i_load_ka = 0.0
+            if elem.trafo_kva > 0 and elem.voltage_kv > 0:
+                i_load_ka = (elem.trafo_kva / 1000.0) / (math.sqrt(3) * elem.voltage_kv)
+            elif elem.load_mva > 0 and elem.voltage_kv > 0:
+                i_load_ka = elem.load_mva / (math.sqrt(3) * elem.voltage_kv)
+            elif elem.nominal_current_a > 0:
+                i_load_ka = elem.nominal_current_a / 1000.0
 
-        # CT primário dinâmico: usa série normalizada IEC 61869-2 com a corrente real
-        ct_primary_a = _ct_primary_for_load(i_load_ka * 1000.0)
-        # Secundário padrão Brasil = 5 A; relação de transformação = n = Ip/Is
-        ct_ratio = ct_primary_a   # parâmetro = primário em A (Is=5A implícito)
+            # CT primário dinâmico: usa série normalizada IEC 61869-2 com a corrente real
+            ct_primary_a = _ct_primary_for_load(i_load_ka * 1000.0)
+            # Secundário padrão Brasil = 5 A; relação = Ip (Is=5A implícito)
+            ct_ratio = ct_primary_a
 
-        def _make_relay_output(rs, icc3_ref: float, curve: str = None) -> RelaySettingOutput:
-            return RelaySettingOutput(
-                element_code=rs.element_code,
-                ansi_function=rs.ansi_function,
-                pickup_primary_ka=rs.pickup_primary_ka,
-                pickup_secondary_a=rs.pickup_secondary_a,
-                tms_suggested=rs.tms_suggested,
-                curve_type=curve or rs.curve_type,
-                icc_3ph_ka=icc3_ref,
-                t_at_icc_3ph_s=rs.t_at_icc_3ph_s,
-                t_at_icc_2ph_s=rs.t_at_icc_2ph_s,
-                t_at_icc_1ph_s=rs.t_at_icc_1ph_s,
-                sensitivity_ok=rs.sensitivity_ok,
-                sensitivity_ratio=rs.sensitivity_ratio,
-                warnings=rs.warnings,
-                assumptions=rs.assumptions,
-                notes=rs.notes,
-            )
+            def _make_relay_output(rs, icc3_ref: float, curve: str = None) -> RelaySettingOutput:
+                return RelaySettingOutput(
+                    element_code=rs.element_code,
+                    ansi_function=rs.ansi_function,
+                    pickup_primary_ka=rs.pickup_primary_ka,
+                    pickup_secondary_a=rs.pickup_secondary_a,
+                    tms_suggested=rs.tms_suggested,
+                    curve_type=curve or rs.curve_type,
+                    icc_3ph_ka=icc3_ref,
+                    t_at_icc_3ph_s=rs.t_at_icc_3ph_s,
+                    t_at_icc_2ph_s=rs.t_at_icc_2ph_s,
+                    t_at_icc_1ph_s=rs.t_at_icc_1ph_s,
+                    sensitivity_ok=rs.sensitivity_ok,
+                    sensitivity_ratio=rs.sensitivity_ratio,
+                    warnings=rs.warnings,
+                    assumptions=rs.assumptions,
+                    notes=rs.notes,
+                )
 
-        if icc3 > 0:
-            # 51 — sobrecorrente temporizada de fase (NI)
-            rs51 = suggest_relay_settings(
-                element_code=elem.code, ansi_function="51",
-                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
-            )
-            relay_results.append(_make_relay_output(rs51, icc3))
-
-            # 50 — instantânea de fase
-            rs50 = suggest_relay_settings(
-                element_code=elem.code, ansi_function="50",
-                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                i_load_ka=i_load_ka, ct_ratio=ct_ratio,
-            )
-            relay_results.append(RelaySettingOutput(
-                element_code=rs50.element_code, ansi_function="50",
-                pickup_primary_ka=rs50.pickup_primary_ka,
-                pickup_secondary_a=rs50.pickup_secondary_a,
-                tms_suggested=0.0, curve_type="—",
-                icc_3ph_ka=icc3, t_at_icc_3ph_s=0.05,
-                warnings=rs50.warnings, assumptions=rs50.assumptions, notes=rs50.notes,
-            ))
-
-            # 67 — sobrecorrente direcional de fase (linhas, cabos e alimentadores)
-            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
-                rs67 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="67",
+            if icc3 > 0:
+                # 51 — sobrecorrente temporizada de fase (NI)
+                rs51 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="51",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
                     i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
                 )
-                relay_results.append(_make_relay_output(rs67, icc3))
+                relay_results.append(_make_relay_output(rs51, icc3))
 
-            # 46 — sequência negativa (faltas assimétricas e desequilíbrio)
-            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
-                rs46 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="46",
+                # 50 — instantânea de fase
+                rs50 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="50",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
                     i_load_ka=i_load_ka, ct_ratio=ct_ratio,
                 )
-                relay_results.append(_make_relay_output(rs46, icc2 if icc2 > 0 else icc3, curve="—"))
+                relay_results.append(RelaySettingOutput(
+                    element_code=rs50.element_code, ansi_function="50",
+                    pickup_primary_ka=rs50.pickup_primary_ka,
+                    pickup_secondary_a=rs50.pickup_secondary_a,
+                    tms_suggested=0.0, curve_type="—",
+                    icc_3ph_ka=icc3, t_at_icc_3ph_s=0.05,
+                    warnings=rs50.warnings, assumptions=rs50.assumptions, notes=rs50.notes,
+                ))
 
-            # 21 — distância (linhas com impedância conhecida)
-            if elem.element_type in (ElementType.linha, ElementType.cabo) and elem.length_km > 0:
-                rs21 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="21",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                # 67 — direcional de fase (linhas, cabos e alimentadores)
+                if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    rs67 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="67",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
+                    )
+                    relay_results.append(_make_relay_output(rs67, icc3))
+
+                # 46 — sequência negativa
+                if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    rs46 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="46",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs46, icc2 if icc2 > 0 else icc3, curve="—"))
+
+                # 21 — distância (linhas com comprimento e impedância conhecidos)
+                if elem.element_type in (ElementType.linha, ElementType.cabo) and elem.length_km > 0:
+                    rs21 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="21",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs21, icc3, curve="—"))
+
+                # 87T — diferencial de transformador
+                if elem.element_type == ElementType.transformador and elem.trafo_kva > 0:
+                    rs87t = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="87T",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs87t, icc3, curve="—"))
+
+                # ── Proteções específicas de LT (AT ≥ 69 kV) ─────────────────
+                is_lt_at = (
+                    elem.element_type in (ElementType.linha, ElementType.cabo)
+                    and elem.voltage_kv >= 69.0
                 )
-                relay_results.append(_make_relay_output(rs21, icc3, curve="—"))
+                if is_lt_at:
+                    # 87L — diferencial de linha (proteção principal P1)
+                    rs87l = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="87L",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs87l, icc3, curve="—"))
 
-            # 87T — diferencial de transformador
-            if elem.element_type == ElementType.transformador and elem.trafo_kva > 0:
-                rs87t = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="87T",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    # 85 — teleproteção POTT/PUTT/Blocking
+                    rs85 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="85",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs85, icc3, curve="—"))
+
+                    # 79 — religamento automático
+                    rs79 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="79",
+                        icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs79, icc3, curve="—"))
+
+                    # 25 — verificação de sincronismo
+                    rs25 = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="25",
+                        icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                    )
+                    relay_results.append(_make_relay_output(rs25, icc3, curve="—"))
+
+            elif icc3 == 0:
+                errors.append(
+                    f"[RELÉ-SKIP] Elemento '{elem.code}': Icc3φ = 0 kA — "
+                    "verifique impedância da fonte e do elemento."
                 )
-                relay_results.append(_make_relay_output(rs87t, icc3, curve="—"))
 
-            # ── Proteções específicas de LT (AT ≥ 69 kV / EAT ≥ 138 kV) ─────────
-            is_lt_at = (
-                elem.element_type in (ElementType.linha, ElementType.cabo)
-                and elem.voltage_kv >= 69.0
-            )
-            if is_lt_at:
-                # 87L — diferencial de linha (proteção principal P1)
-                rs87l = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="87L",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
-                )
-                relay_results.append(_make_relay_output(rs87l, icc3, curve="—"))
-
-                # 85 — teleproteção POTT/PUTT/Blocking (aceleração Zona 2 da função 21)
-                rs85 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="85",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
-                )
-                relay_results.append(_make_relay_output(rs85, icc3, curve="—"))
-
-                # 79 — religamento automático
-                rs79 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="79",
-                    icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
-                )
-                relay_results.append(_make_relay_output(rs79, icc3, curve="—"))
-
-                # 25 — verificação de sincronismo (obrigatório com 79)
-                rs25 = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="25",
-                    icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
-                )
-                relay_results.append(_make_relay_output(rs25, icc3, curve="—"))
-
-        # 51N — terra temporizado (quando há corrente monofásica)
-        if icc1 > 0:
-            rs51n = suggest_relay_settings(
-                element_code=elem.code, ansi_function="51N",
-                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
-            )
-            relay_results.append(RelaySettingOutput(
-                element_code=rs51n.element_code, ansi_function="51N",
-                pickup_primary_ka=rs51n.pickup_primary_ka,
-                pickup_secondary_a=rs51n.pickup_secondary_a,
-                tms_suggested=rs51n.tms_suggested,
-                curve_type=rs51n.curve_type,
-                icc_3ph_ka=icc1,  # usa icc1 como referência para o coordenograma de terra
-                t_at_icc_1ph_s=rs51n.t_at_icc_1ph_s,
-                warnings=rs51n.warnings, assumptions=rs51n.assumptions,
-            ))
-
-            # 67N — terra direcional (linhas e alimentadores com corrente de terra)
-            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
-                rs67n = suggest_relay_settings(
-                    element_code=elem.code, ansi_function="67N",
+            # 51N — terra temporizado (quando há corrente monofásica)
+            if icc1 > 0:
+                rs51n = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="51N",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
                     i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
                 )
-                relay_results.append(_make_relay_output(rs67n, icc1, curve="EI"))
+                relay_results.append(RelaySettingOutput(
+                    element_code=rs51n.element_code, ansi_function="51N",
+                    pickup_primary_ka=rs51n.pickup_primary_ka,
+                    pickup_secondary_a=rs51n.pickup_secondary_a,
+                    tms_suggested=rs51n.tms_suggested,
+                    curve_type=rs51n.curve_type,
+                    icc_3ph_ka=icc1,  # usa icc1 como referência para coordenograma de terra
+                    t_at_icc_1ph_s=rs51n.t_at_icc_1ph_s,
+                    warnings=rs51n.warnings, assumptions=rs51n.assumptions,
+                    notes=rs51n.notes,
+                ))
 
-    return relay_results
+                # 67N — terra direcional
+                if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    rs67n = suggest_relay_settings(
+                        element_code=elem.code, ansi_function="67N",
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
+                    )
+                    relay_results.append(_make_relay_output(rs67n, icc1, curve="EI"))
+
+        except Exception as exc:
+            tb = _traceback.format_exc()
+            errors.append(
+                f"[ERRO-RELÉ] Exceção ao processar '{elem.code}' "
+                f"(tipo={getattr(elem.element_type, 'value', elem.element_type)}): "
+                f"{exc} | Traceback: {tb}"
+            )
+
+    return relay_results, errors
 
 
 _SIZING_ELEMENT_TYPES = {
@@ -485,128 +553,158 @@ _SIZING_ELEMENT_TYPES = {
 }
 
 
-def _size_all_equipment(active_elements, sc_results_raw, system) -> tuple:
-    """Dimensiona TC, TP e disjuntores para elementos de proteção relevantes."""
-    ct_results = []
-    vt_results = []
-    breaker_results = []
+def _size_all_equipment(
+    active_elements, sc_results_raw, system
+) -> tuple[list[CTSizingOutput], list[VTSizingOutput], list[BreakerSizingOutput], list[str]]:
+    """
+    Dimensiona TC, TP e disjuntores para elementos de proteção relevantes.
+    Retorna (ct_results, vt_results, breaker_results, errors).
+    """
+    ct_results: list[CTSizingOutput] = []
+    vt_results: list[VTSizingOutput] = []
+    breaker_results: list[BreakerSizingOutput] = []
+    errors: list[str] = []
     results_map = {r.element_code: r for r in sc_results_raw}
 
     for elem in active_elements:
-        # Apenas tipos relevantes para proteção
-        if elem.element_type not in _SIZING_ELEMENT_TYPES:
-            continue
+        try:
+            # Apenas tipos relevantes para proteção
+            if elem.element_type not in _SIZING_ELEMENT_TYPES:
+                continue
 
-        raw = results_map.get(elem.code)
-        if raw is None:
-            continue
+            raw = results_map.get(elem.code)
+            if raw is None:
+                errors.append(
+                    f"[DIM-SKIP] Elemento '{elem.code}': não encontrado em sc_results_raw."
+                )
+                continue
 
-        icc3 = raw.icc_3ph_ka
-        icc_peak = raw.icc_peak_ka
-        kappa = raw.kappa_factor
-        v_kv = elem.voltage_kv if elem.voltage_kv > 0 else system.v_base_kv
+            icc3 = raw.icc_3ph_ka
+            icc_peak = raw.icc_peak_ka
+            kappa = raw.kappa_factor
+            v_kv = elem.voltage_kv if elem.voltage_kv > 0 else system.v_base_kv
 
-        # Corrente de carga estimada
-        i_load_a = 0.0
-        if elem.trafo_kva > 0 and elem.voltage_kv > 0:
-            i_load_a = (elem.trafo_kva * 1000.0) / (math.sqrt(3) * elem.voltage_kv * 1000.0)
-        elif elem.load_mva > 0 and elem.voltage_kv > 0:
-            i_load_a = (elem.load_mva * 1e6) / (math.sqrt(3) * elem.voltage_kv * 1000.0)
-        elif elem.nominal_current_a > 0:
-            i_load_a = elem.nominal_current_a
+            # Corrente de carga estimada
+            i_load_a = 0.0
+            if elem.trafo_kva > 0 and elem.voltage_kv > 0:
+                i_load_a = (elem.trafo_kva * 1000.0) / (math.sqrt(3) * elem.voltage_kv * 1000.0)
+            elif elem.load_mva > 0 and elem.voltage_kv > 0:
+                i_load_a = (elem.load_mva * 1e6) / (math.sqrt(3) * elem.voltage_kv * 1000.0)
+            elif elem.nominal_current_a > 0:
+                i_load_a = elem.nominal_current_a
 
-        # Fallback: para linhas/cabos sem corrente de carga informada,
-        # usa estimativa mínima (5% da Icc3ph) para que o dimensionamento seja executado
-        if i_load_a == 0 and icc3 > 0:
-            i_load_a = max(10.0, icc3 * 1000.0 * 0.05)
+            # Fallback: estimativa mínima 5% de Icc3ph para linhas/cabos sem carga
+            if i_load_a == 0 and icc3 > 0:
+                i_load_a = max(10.0, icc3 * 1000.0 * 0.05)
 
-        if i_load_a > 0 and icc3 > 0:
+            if i_load_a <= 0 or icc3 <= 0:
+                errors.append(
+                    f"[DIM-SKIP] Elemento '{elem.code}': i_load_a={i_load_a:.1f} A, "
+                    f"icc3={icc3:.3f} kA — dimensionamento ignorado (valores nulos)."
+                )
+                continue
+
             # ── Dimensionamento TC ────────────────────────────────────────────
-            ct_raw = size_ct(
-                element_code=elem.code,
-                i_max_load_a=i_load_a,
-                icc_max_ka=icc3,
-                system_voltage_kv=v_kv,
-                purpose="protecao",
-                secondary_current_a=5.0,
-                for_differential_87t=(elem.element_type == ElementType.transformador),
-            )
-            ct_results.append(CTSizingOutput(
-                element_code=ct_raw.element_code,
-                ip_nominal_a=ct_raw.ip_nominal_a,
-                ip_ratio_string=ct_raw.ip_ratio_string,
-                alf_required=ct_raw.alf_required,
-                alf_adopted=ct_raw.alf_adopted,
-                accuracy_class=ct_raw.accuracy_class,
-                burden_total_va=ct_raw.burden_total_va,
-                sn_tc_va=ct_raw.sn_tc_va,
-                vk_required_v=ct_raw.vk_required_v,
-                vk_adopted_v=ct_raw.vk_adopted_v,
-                system_voltage_kv=ct_raw.system_voltage_kv,
-                system_voltage_adopted_kv=ct_raw.system_voltage_adopted_kv,
-                bil_kv=ct_raw.bil_kv,
-                designation_string=ct_raw.designation_string,
-                saturation_check_ok=ct_raw.saturation_check_ok,
-                warnings=ct_raw.warnings,
-                assumptions=ct_raw.assumptions,
-            ))
+            try:
+                ct_raw = size_ct(
+                    element_code=elem.code,
+                    i_max_load_a=i_load_a,
+                    icc_max_ka=icc3,
+                    system_voltage_kv=v_kv,
+                    purpose="protecao",
+                    secondary_current_a=5.0,
+                    for_differential_87t=(elem.element_type == ElementType.transformador),
+                )
+                ct_results.append(CTSizingOutput(
+                    element_code=ct_raw.element_code,
+                    ip_nominal_a=ct_raw.ip_nominal_a,
+                    ip_ratio_string=ct_raw.ip_ratio_string,
+                    alf_required=ct_raw.alf_required,
+                    alf_adopted=ct_raw.alf_adopted,
+                    accuracy_class=ct_raw.accuracy_class,
+                    burden_total_va=ct_raw.burden_total_va,
+                    sn_tc_va=ct_raw.sn_tc_va,
+                    vk_required_v=ct_raw.vk_required_v,
+                    vk_adopted_v=ct_raw.vk_adopted_v,
+                    system_voltage_kv=ct_raw.system_voltage_kv,
+                    system_voltage_adopted_kv=ct_raw.system_voltage_adopted_kv,
+                    bil_kv=ct_raw.bil_kv,
+                    designation_string=ct_raw.designation_string,
+                    saturation_check_ok=ct_raw.saturation_check_ok,
+                    warnings=ct_raw.warnings,
+                    assumptions=ct_raw.assumptions,
+                ))
+            except Exception as exc_ct:
+                errors.append(f"[ERRO-TC] '{elem.code}': {exc_ct}")
 
-            # ── Dimensionamento TP (1 por barra/elemento) ────────────────────
-            vt_raw = size_vt(
-                element_code=elem.code,
-                system_voltage_kv=v_kv,
-                purpose="protecao",
-                neutral_grounding="isolado",  # padrão MT Brasil (redes de distribuição)
-                connection="fase-fase",
-                burden_connected_va=25.0,      # estimativa conservadora
-            )
-            vt_results.append(VTSizingOutput(
-                element_code=vt_raw.element_code,
-                ratio_string=vt_raw.ratio_string,
-                ratio_value=vt_raw.ratio_value,
-                vp_v=vt_raw.vp_v,
-                vs_v=vt_raw.vs_v,
-                accuracy_class=vt_raw.accuracy_class,
-                burden_total_va=vt_raw.burden_total_va,
-                sn_vt_va=vt_raw.sn_vt_va,
-                ktf_value=vt_raw.ktf_value,
-                ktf_description=vt_raw.ktf_description,
-                system_voltage_kv=vt_raw.system_voltage_kv,
-                system_voltage_adopted_kv=vt_raw.system_voltage_adopted_kv,
-                bil_kv=vt_raw.bil_kv,
-                designation_string=vt_raw.designation_string,
-                burden_check_ok=vt_raw.burden_check_ok,
-                warnings=vt_raw.warnings,
-                assumptions=vt_raw.assumptions,
-            ))
+            # ── Dimensionamento TP ────────────────────────────────────────────
+            try:
+                vt_raw = size_vt(
+                    element_code=elem.code,
+                    system_voltage_kv=v_kv,
+                    purpose="protecao",
+                    neutral_grounding="isolado",  # padrão MT Brasil
+                    connection="fase-fase",
+                    burden_connected_va=25.0,
+                )
+                vt_results.append(VTSizingOutput(
+                    element_code=vt_raw.element_code,
+                    ratio_string=vt_raw.ratio_string,
+                    ratio_value=vt_raw.ratio_value,
+                    vp_v=vt_raw.vp_v,
+                    vs_v=vt_raw.vs_v,
+                    accuracy_class=vt_raw.accuracy_class,
+                    burden_total_va=vt_raw.burden_total_va,
+                    sn_vt_va=vt_raw.sn_vt_va,
+                    ktf_value=vt_raw.ktf_value,
+                    ktf_description=vt_raw.ktf_description,
+                    system_voltage_kv=vt_raw.system_voltage_kv,
+                    system_voltage_adopted_kv=vt_raw.system_voltage_adopted_kv,
+                    bil_kv=vt_raw.bil_kv,
+                    designation_string=vt_raw.designation_string,
+                    burden_check_ok=vt_raw.burden_check_ok,
+                    warnings=vt_raw.warnings,
+                    assumptions=vt_raw.assumptions,
+                ))
+            except Exception as exc_vt:
+                errors.append(f"[ERRO-TP] '{elem.code}': {exc_vt}")
 
             # ── Dimensionamento disjuntor ─────────────────────────────────────
-            br_raw = size_breaker(
-                element_code=elem.code,
-                system_voltage_kv=v_kv,
-                i_max_load_a=i_load_a,
-                icc_3ph_ka=icc3,
-                icc_peak_ka=icc_peak,
-                kappa_factor=kappa if kappa > 0 else 1.8,
-                fault_duration_s=system.fault_time_s,
-            )
-            breaker_results.append(BreakerSizingOutput(
-                element_code=br_raw.element_code,
-                voltage_class_kv=br_raw.voltage_class_kv,
-                nominal_current_a=br_raw.nominal_current_a,
-                breaking_current_ka=br_raw.breaking_current_ka,
-                making_current_ka=br_raw.making_current_ka,
-                short_time_current_ka=br_raw.short_time_current_ka,
-                short_time_duration_s=br_raw.short_time_duration_s,
-                device_type=br_raw.device_type,
-                voltage_ok=br_raw.voltage_ok,
-                current_ok=br_raw.current_ok,
-                breaking_ok=br_raw.breaking_ok,
-                warnings=br_raw.warnings,
-                assumptions=br_raw.assumptions,
-            ))
+            try:
+                br_raw = size_breaker(
+                    element_code=elem.code,
+                    system_voltage_kv=v_kv,
+                    i_max_load_a=i_load_a,
+                    icc_3ph_ka=icc3,
+                    icc_peak_ka=icc_peak,
+                    kappa_factor=kappa if kappa > 0 else 1.8,
+                    fault_duration_s=system.fault_time_s,
+                )
+                breaker_results.append(BreakerSizingOutput(
+                    element_code=br_raw.element_code,
+                    voltage_class_kv=br_raw.voltage_class_kv,
+                    nominal_current_a=br_raw.nominal_current_a,
+                    breaking_current_ka=br_raw.breaking_current_ka,
+                    making_current_ka=br_raw.making_current_ka,
+                    short_time_current_ka=br_raw.short_time_current_ka,
+                    short_time_duration_s=br_raw.short_time_duration_s,
+                    device_type=br_raw.device_type,
+                    voltage_ok=br_raw.voltage_ok,
+                    current_ok=br_raw.current_ok,
+                    breaking_ok=br_raw.breaking_ok,
+                    warnings=br_raw.warnings,
+                    assumptions=br_raw.assumptions,
+                ))
+            except Exception as exc_br:
+                errors.append(f"[ERRO-DISJ] '{elem.code}': {exc_br}")
 
-    return ct_results, vt_results, breaker_results
+        except Exception as exc:
+            tb = _traceback.format_exc()
+            errors.append(
+                f"[ERRO-DIM] Exceção ao dimensionar '{elem.code}': {exc} | {tb}"
+            )
+
+    return ct_results, vt_results, breaker_results, errors
 
 
 def _empty_response(study_id, algorithm_version, warnings) -> CalculationResponse:

@@ -458,7 +458,19 @@ if result:
                 })
             st.dataframe(pd.DataFrame(relay_data), use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhuma sugestão de relé disponível.")
+            st.warning("⚠️ Nenhuma sugestão de relé foi gerada.")
+            diag_relays = [w for w in (result.global_warnings or []) if "RELÉ" in w or "DIAGNÓ" in w or "ERRO" in w]
+            if diag_relays:
+                st.markdown("**Diagnóstico:**")
+                for d in diag_relays:
+                    st.code(d, language="text")
+            else:
+                st.info(
+                    "Possíveis causas: (1) Todos os elementos têm Icc3φ = 0 "
+                    "— verifique impedância da fonte. "
+                    "(2) Elementos não conectados à barra fonte via BFS. "
+                    "(3) Clique **CALCULAR** novamente para atualizar."
+                )
 
     # ── Tab 4: Dimensionamento ────────────────────────────────────────────────
     with tab4:
@@ -484,7 +496,11 @@ if result:
                     })
                 st.dataframe(pd.DataFrame(ct_data), use_container_width=True, hide_index=True)
             else:
-                st.info("Nenhum TC dimensionado.")
+                st.warning("⚠️ Nenhum TC dimensionado.")
+                diag_dim = [w for w in (result.global_warnings or []) if "DIM" in w or "TC" in w or "ERRO" in w]
+                if diag_dim:
+                    for d in diag_dim:
+                        st.code(d, language="text")
 
         with sub_t2:
             if result.vt_sizing:
