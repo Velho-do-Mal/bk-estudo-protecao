@@ -6,14 +6,14 @@ streamlit>=1.31.0
 
 # ─── Framework Web (FastAPI — mantido para compatibilidade com módulos app/) ──
 fastapi==0.115.5
-uvicorn==0.32.1          # sem [standard] — evita uvloop/httptools (C extensions)
+uvicorn==0.32.1
 python-multipart==0.0.12
 jinja2==3.1.4
 
 # ─── Banco de dados ───────────────────────────────────────────────────────────
-sqlalchemy==2.0.36       # sem [asyncio] — Streamlit usa apenas sync
+sqlalchemy==2.0.36
 alembic==1.14.0
-pg8000>=1.31.0            # PostgreSQL sync — puro Python, sem compilação C
+pg8000>=1.31.0           # PostgreSQL sync — puro Python, sem compilação C
 aiosqlite==0.20.0        # SQLite async (dev local)
 
 # ─── Autenticação ─────────────────────────────────────────────────────────────
@@ -26,14 +26,14 @@ pydantic==2.9.2
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 
-# ─── Cálculos e gráficos ──────────────────────────────────────────────────────
-numpy==2.1.3
-matplotlib==3.9.2
-scipy==1.14.1
+# ─── Cálculos e gráficos (sem pin de versão para compatibilidade com Python 3.12+) ──
+numpy>=1.26
+matplotlib>=3.8
+scipy>=1.11
 
 # ─── Relatórios ───────────────────────────────────────────────────────────────
-openpyxl==3.1.5
-Pillow==11.0.0
+openpyxl>=3.1
+Pillow>=10.0             # sem pin — versões novas têm wheels para Python 3.12+
 # weasyprint — requer libcairo/libpango; não suportado no Streamlit Cloud
 
 # ─── Utilitários ──────────────────────────────────────────────────────────────
