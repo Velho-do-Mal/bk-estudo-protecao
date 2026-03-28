@@ -96,7 +96,7 @@ def get_session():
 def authenticate_user(username: str, password: str) -> Optional[object]:
     """Autentica usuário por username/email e senha. Retorna objeto User ou None."""
     from app.auth.models import User
-    from app.auth.utils import verify_password
+    import bcrypt as _bcrypt
 
     with get_session() as db:
         user = (
@@ -105,9 +105,18 @@ def authenticate_user(username: str, password: str) -> Optional[object]:
             .filter(User.is_active == True)  # noqa: E712
             .first()
         )
-        if user and verify_password(password, user.hashed_password):
-            db.expunge(user)
-            return user
+        if user:
+            try:
+                # Usa bcrypt diretamente — evita incompatibilidade passlib 1.7.4 + bcrypt 4.x
+                ok = _bcrypt.checkpw(
+                    password.encode("utf-8"),
+                    user.hashed_password.encode("utf-8"),
+                )
+            except Exception:
+                ok = False
+            if ok:
+                db.expunge(user)
+                return user
     return None
 
 
