@@ -17,34 +17,62 @@ import app.models_registry  # registra todos os modelos ORM  # noqa: F401
 
 settings = get_settings()
 
-def _build_db_url(url: str) -> str:
-    """Normaliza URL PostgreSQL para usar pg8000 (puro Python, sem compilação C)."""
-    url = url.replace("postgres://", "postgresql://", 1)  # Neon usa "postgres://"
-    if "postgresql" in url and "+pg8000" not in url:
+def _build_db_url(url: str) -> tuple:
+    """
+    Normaliza URL PostgreSQL para pg8000.
+    Retorna (url_limpa, connect_args) — SSL é passado via connect_args,
+    pois pg8000 não aceita ssl=require/sslmode=require na query string.
+    """
+    import ssl as _ssl
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+
+    url = url.replace("postgres://", "postgresql://", 1)
+
+    connect_args: dict = {}
+
+    if "postgresql" in url:
+        # Troca driver para pg8000
         for prefix in ("postgresql+asyncpg://", "postgresql+psycopg2://", "postgresql://"):
             if url.startswith(prefix):
                 url = "postgresql+pg8000://" + url[len(prefix):]
                 break
-    return url
 
-def _get_db_url() -> str:
+        # Remove parâmetros SSL da query string (pg8000 não os entende)
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        ssl_needed = (
+            qs.pop("sslmode", [""])[0].lower() in ("require", "verify-full", "verify-ca")
+            or qs.pop("ssl", [""])[0].lower() in ("require", "true", "1")
+        )
+        clean_query = urlencode({k: v[0] for k, v in qs.items()})
+        url = urlunparse(parsed._replace(query=clean_query))
+
+        if ssl_needed:
+            # pg8000 aceita ssl_context via connect_args
+            ctx = _ssl.create_default_context()
+            connect_args["ssl_context"] = ctx
+
+    return url, connect_args
+
+
+def _get_raw_url() -> str:
     """Lê a URL do banco: primeiro st.secrets (Streamlit Cloud), depois settings (.env local)."""
-    # Tenta st.secrets (disponível no Streamlit Cloud)
     try:
         import streamlit as st
         raw = st.secrets.get("DATABASE_URL_SYNC") or st.secrets.get("DATABASE_URL")
         if raw:
-            return _build_db_url(str(raw))
+            return str(raw)
     except Exception:
         pass
-    # Fallback: .env local via pydantic-settings
-    return _build_db_url(settings.DATABASE_URL_SYNC)
+    return settings.DATABASE_URL_SYNC
 
-_db_url = _get_db_url()
+
+_db_url, _connect_args = _build_db_url(_get_raw_url())
 
 engine = create_engine(
     _db_url,
     pool_pre_ping=True,
+    connect_args=_connect_args,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
