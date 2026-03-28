@@ -22,8 +22,8 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.2.0
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
-pydantic==2.9.2
-pydantic-settings==2.6.1
+pydantic>=2.10            # >=2.10 usa pydantic-core com PyO3>=0.23 (suporta Python 3.14)
+pydantic-settings>=2.7   # compatível com pydantic>=2.10
 python-dotenv==1.0.1
 
 # ─── Cálculos e gráficos (sem pin de versão para compatibilidade com Python 3.12+) ──
