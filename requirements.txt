@@ -13,9 +13,8 @@ jinja2==3.1.4
 # ─── Banco de dados ───────────────────────────────────────────────────────────
 sqlalchemy==2.0.36       # sem [asyncio] — Streamlit usa apenas sync
 alembic==1.14.0
-psycopg2-binary==2.9.10  # PostgreSQL sync (Neon)
+pg8000>=1.31.0            # PostgreSQL sync — puro Python, sem compilação C
 aiosqlite==0.20.0        # SQLite async (dev local)
-# asyncpg removido — requer compilação C; Streamlit usa psycopg2
 
 # ─── Autenticação ─────────────────────────────────────────────────────────────
 pyjwt==2.9.0
