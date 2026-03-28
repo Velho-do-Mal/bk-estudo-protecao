@@ -18,12 +18,12 @@ import app.models_registry  # registra todos os modelos ORM  # noqa: F401
 settings = get_settings()
 
 def _build_db_url(url: str) -> str:
-    """Normaliza URL PostgreSQL para usar psycopg2 (driver síncrono padrão)."""
+    """Normaliza URL PostgreSQL para usar pg8000 (puro Python, sem compilação C)."""
     url = url.replace("postgres://", "postgresql://", 1)  # Neon usa "postgres://"
-    if "postgresql" in url and "+psycopg2" not in url:
-        for prefix in ("postgresql+asyncpg://", "postgresql+pg8000://", "postgresql://"):
+    if "postgresql" in url and "+pg8000" not in url:
+        for prefix in ("postgresql+asyncpg://", "postgresql+psycopg2://", "postgresql://"):
             if url.startswith(prefix):
-                url = "postgresql+psycopg2://" + url[len(prefix):]
+                url = "postgresql+pg8000://" + url[len(prefix):]
                 break
     return url
 
