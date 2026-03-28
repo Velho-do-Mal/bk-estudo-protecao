@@ -1,7 +1,6 @@
 """
 st_db.py — Utilitários síncronos de banco de dados para o Streamlit.
-Usa DATABASE_URL_SYNC (pg8000 para Postgres, sqlite para dev).
-pg8000 é puro Python — sem compilação C, compatível com qualquer Python.
+Usa DATABASE_URL_SYNC (psycopg2 para Postgres, sqlite para dev).
 """
 
 from __future__ import annotations
@@ -19,13 +18,12 @@ import app.models_registry  # registra todos os modelos ORM  # noqa: F401
 settings = get_settings()
 
 def _build_db_url(url: str) -> str:
-    """Converte URL PostgreSQL para usar pg8000 (puro Python, sem compilação C)."""
+    """Normaliza URL PostgreSQL para usar psycopg2 (driver síncrono padrão)."""
     url = url.replace("postgres://", "postgresql://", 1)  # Neon usa "postgres://"
-    if "postgresql" in url and "+pg8000" not in url:
-        # Troca o driver para pg8000 independente do driver original
-        for prefix in ("postgresql+psycopg2://", "postgresql+asyncpg://", "postgresql://"):
+    if "postgresql" in url and "+psycopg2" not in url:
+        for prefix in ("postgresql+asyncpg://", "postgresql+pg8000://", "postgresql://"):
             if url.startswith(prefix):
-                url = "postgresql+pg8000://" + url[len(prefix):]
+                url = "postgresql+psycopg2://" + url[len(prefix):]
                 break
     return url
 
