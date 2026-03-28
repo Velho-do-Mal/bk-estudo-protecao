@@ -373,7 +373,7 @@ def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySe
                 warnings=rs50.warnings, assumptions=rs50.assumptions, notes=rs50.notes,
             ))
 
-            # 67 — sobrecorrente direcional de fase (linhas e alimentadores)
+            # 67 — sobrecorrente direcional de fase (linhas, cabos e alimentadores)
             if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
                 rs67 = suggest_relay_settings(
                     element_code=elem.code, ansi_function="67",
@@ -381,6 +381,15 @@ def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySe
                     i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
                 )
                 relay_results.append(_make_relay_output(rs67, icc3))
+
+            # 46 — sequência negativa (faltas assimétricas e desequilíbrio)
+            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                rs46 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="46",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs46, icc2 if icc2 > 0 else icc3, curve="—"))
 
             # 21 — distância (linhas com impedância conhecida)
             if elem.element_type in (ElementType.linha, ElementType.cabo) and elem.length_km > 0:
@@ -400,7 +409,43 @@ def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySe
                 )
                 relay_results.append(_make_relay_output(rs87t, icc3, curve="—"))
 
-        # 51N / 50N — terra (quando há corrente monofásica)
+            # ── Proteções específicas de LT (AT ≥ 69 kV / EAT ≥ 138 kV) ─────────
+            is_lt_at = (
+                elem.element_type in (ElementType.linha, ElementType.cabo)
+                and elem.voltage_kv >= 69.0
+            )
+            if is_lt_at:
+                # 87L — diferencial de linha (proteção principal P1)
+                rs87l = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="87L",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs87l, icc3, curve="—"))
+
+                # 85 — teleproteção POTT/PUTT/Blocking (aceleração Zona 2 da função 21)
+                rs85 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="85",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs85, icc3, curve="—"))
+
+                # 79 — religamento automático
+                rs79 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="79",
+                    icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs79, icc3, curve="—"))
+
+                # 25 — verificação de sincronismo (obrigatório com 79)
+                rs25 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="25",
+                    icc_3ph_ka=icc3, i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs25, icc3, curve="—"))
+
+        # 51N — terra temporizado (quando há corrente monofásica)
         if icc1 > 0:
             rs51n = suggest_relay_settings(
                 element_code=elem.code, ansi_function="51N",
@@ -417,6 +462,15 @@ def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySe
                 t_at_icc_1ph_s=rs51n.t_at_icc_1ph_s,
                 warnings=rs51n.warnings, assumptions=rs51n.assumptions,
             ))
+
+            # 67N — terra direcional (linhas e alimentadores com corrente de terra)
+            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                rs67n = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="67N",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
+                )
+                relay_results.append(_make_relay_output(rs67n, icc1, curve="EI"))
 
     return relay_results
 

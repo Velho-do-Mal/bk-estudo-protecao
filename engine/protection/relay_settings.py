@@ -279,9 +279,9 @@ def suggest_relay_settings(
             "Esta sugestão é apenas um ponto de partida."
         )
 
-    # ─── Função 67 / 67N (sobrecorrente direcional) ───────────────────────────
-    elif func in ("67", "67N"):
-        # Mesma lógica de pickup da 51, com qualificador direcional
+    # ─── Função 67 (sobrecorrente direcional de fase) ─────────────────────────
+    elif func == "67":
+        # Mesma lógica de pickup da 51, com qualificador direcional de fase
         ip_min_by_load = 1.2 * i_load_ka if i_load_ka > 0 else 0.01
         ip = max(ip_min_by_load, 0.15 * icc_ref)
         res.pickup_primary_ka = ip
@@ -297,8 +297,9 @@ def suggest_relay_settings(
         res.notes = (
             "ANSI 67: Sobrecorrente direcional de fase. "
             "Confirmar ângulo de polarização (típico θ = 30°–45°) com o relé. "
-            "Tensão de polarização: fase-fase ou sequência positiva. "
-            "Referência: IEC 60255-151 Seção 8, Blackburn Cap. 11."
+            "Tensão de polarização: fase-fase (Vab, Vbc, Vca) ou sequência positiva. "
+            "Ângulo MTA (Maximum Torque Angle) típico = 60°–75° (lags). "
+            "Referência: IEC 60255-151 §8, ANSI/IEEE C37.113, Blackburn Cap. 11."
         )
         if ip > 0:
             ratio = icc_2ph_ka / ip if icc_2ph_ka > 0 else icc_ref / ip
@@ -308,6 +309,75 @@ def suggest_relay_settings(
                 res.warnings.append(
                     f"ALERTA DE SENSIBILIDADE (67): I_falta/I_pickup = {ratio:.2f} < 2,0."
                 )
+
+    # ─── Função 67N (sobrecorrente direcional à terra) ─────────────────────────
+    elif func == "67N":
+        # Pickup baseado na corrente de falta à terra (Icc1)
+        # Ip ≈ 10% de Icc1ph (similar a 51N, mas com qualificador direcional)
+        if icc_1ph_ka > 0:
+            ip = max(0.003, 0.10 * icc_1ph_ka)
+        else:
+            ip = max(0.003, 0.05 * icc_ref)
+            res.warnings.append(
+                "Corrente monofásica não calculada — usando estimativa = 5% de Icc3ph."
+            )
+        res.pickup_primary_ka = ip
+        res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
+        # Curva EI (Extremamente Inversa) para melhor seletividade com faltas de alta resistência
+        curve_ei = get_curve("EI") or curve
+        tms = 0.05
+        res.tms_suggested = tms
+        res.t_at_icc_1ph_s = curve_ei.operating_time(icc_1ph_ka, ip, tms) if icc_1ph_ka > 0 else None
+        res.assumptions.append(
+            f"Ip(67N) = 10% × Icc1φ = {ip:.4f} kA. "
+            "Curva: EI (Extremamente Inversa) — IEC 60255-151 Tabela 1. "
+            "Hipótese: sistema solidamente aterrado. "
+            "Para sistemas isolados/resistivos, reduzir para 5% e revisar sensibilidade."
+        )
+        res.notes = (
+            "ANSI 67N: Sobrecorrente direcional à terra. "
+            "Polarização por tensão residual V0 = (Va + Vb + Vc)/3 ou por corrente de sequência zero I0. "
+            "Ângulo MTA típico = 0°–15° (resistivo) para sistemas com aterramento por resistência, "
+            "ou 60°–90° (reativos) para sistemas solidamente aterrados. "
+            "Exige TP de núcleo residual (classe 3P, Ktf=1,9) para medição de V0. "
+            "Referência: IEC 60255-151 §9, ANSI/IEEE C37.113 §6.3, Kindermann Cap. 7."
+        )
+        if icc_1ph_ka > 0 and ip > 0:
+            res.sensitivity_ratio = icc_1ph_ka / ip
+            res.sensitivity_ok = res.sensitivity_ratio >= 1.5
+            if not res.sensitivity_ok:
+                res.warnings.append(
+                    f"SENSIBILIDADE INSUFICIENTE (67N): ratio = {res.sensitivity_ratio:.2f} < 1,5."
+                )
+
+    # ─── Função 46 (sequência negativa de corrente) ────────────────────────────
+    elif func == "46":
+        # Pickup: corrente de sequência negativa I2
+        # I2 típica em faltas fase-fase ≈ Icc2ph / 2
+        # Pickup mínimo = 10–20% da corrente nominal (sensível a desequilíbrios)
+        ip_load_ref = i_load_ka if i_load_ka > 0 else (icc_ref * 0.05)
+        ip = max(0.002, 0.15 * ip_load_ref)
+        res.pickup_primary_ka = ip
+        res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
+        tms = 0.2
+        res.tms_suggested = tms
+        res.t_at_icc_2ph_s = 0.3   # tempo típico para falta bifásica
+        res.assumptions.append(
+            f"Ip(46) = 15% × I_nominal = {ip:.4f} kA. "
+            "Baseado em: IEEE C37.96, limite ANEEL de desequilíbrio de tensão < 2% (REN 956/2021)."
+        )
+        res.notes = (
+            "ANSI 46: Proteção de sequência negativa de corrente. "
+            "Detecta: faltas fase-fase, faltas monofásicas de alta resistência, condutores abertos, "
+            "desequilíbrios de carga. "
+            "Ajuste: I2_pickup = 10–20% de I_nominal; tempo de atuação ≥ 0,2 s. "
+            "Verificar nível de desequilíbrio normal do sistema (máx. 2% per PRODIST Módulo 8). "
+            "Referência: IEC 60255-151 §11, IEEE C37.96, ANSI/IEEE C37.113 §6.2."
+        )
+        if ip > 0 and icc_2ph_ka > 0:
+            i2_falta = icc_2ph_ka / 2.0  # I2 durante falta bifásica
+            res.sensitivity_ratio = i2_falta / ip
+            res.sensitivity_ok = res.sensitivity_ratio >= 1.5
 
     # ─── Função 21 (distância) ────────────────────────────────────────────────
     elif func == "21":
@@ -336,6 +406,105 @@ def suggest_relay_settings(
         res.assumptions.append(
             f"Função {func}: ajuste de tensão/frequência — verificar exigências específicas "
             "da concessionária (ANEEL REN 956/2021 / PRODIST Módulo 8)."
+        )
+
+    # ─── Função 87L (diferencial de linha) ────────────────────────────────────
+    elif func == "87L":
+        ip = max(0.003, 0.30 * i_load_ka) if i_load_ka > 0 else 0.003
+        res.pickup_primary_ka = ip
+        res.tms_suggested = 0.0
+        res.t_at_icc_3ph_s = 0.020   # ~20ms (proteção principal rápida)
+        res.assumptions.append(
+            f"Ip(87L) ≈ 30% × I_nominal = {ip:.4f} kA. "
+            "Inclui margem para corrente de carga capacitiva da linha (charging current). "
+            "Requer ajuste fino com dados do fabricante do relé e medição real."
+        )
+        res.notes = (
+            "ANSI 87L: Diferencial de linha — proteção principal para LT ≥ 69 kV. "
+            "Requer canal de comunicação de alta confiabilidade (fibra óptica preferencial, "
+            "canal piloto ou PLC como backup). "
+            "Ajustes obrigatórios: compensação de corrente capacitiva da linha (Ic), "
+            "alinhamento de correntes dos TCs de ambas as extremidades, "
+            "compensação de defasagem angular para transformadores em série. "
+            "Slope 1 = 20–30% (baixa carga), Slope 2 = 50–70% (alta carga/saturação TC). "
+            "Instabilidade durante energização: verificar bloqueio por inrush (2ª harmônica). "
+            "Referência: IEC 60255-8:2020 (diferencial de linha), IEEE C37.243:2015, "
+            "ABNT NBR IEC 60255-8, ONS RE 3.LD.RP.06.02."
+        )
+        res.sensitivity_ratio = (icc_ref / ip) if ip > 0 else 0.0
+        res.sensitivity_ok = res.sensitivity_ratio >= 2.0
+
+    # ─── Função 85 (teleproteção — POTT/PUTT/Blocking) ───────────────────────
+    elif func == "85":
+        res.pickup_primary_ka = 0.0
+        res.tms_suggested = 0.0
+        res.t_at_icc_3ph_s = 0.080  # ~80ms típico com canal de comunicação
+        res.notes = (
+            "ANSI 85: Esquema de teleproteção — acelera atuação da Zona 2 da função 21. "
+            "Esquemas principais: "
+            "• POTT (Permissive Overreaching Transfer Trip): Zona 2 + sinal de permissão do terminal remoto. "
+            "  Mais comum, requer canal bidirecional de boa qualidade. "
+            "• PUTT (Permissive Underreaching Transfer Trip): Zona 1 + sinal. "
+            "  Mais seletivo, usado onde POTT não é viável. "
+            "• BLOCKING: Zona 2 exceto se receber sinal de bloqueio do terminal remoto. "
+            "  Mais confiável em canais ruidosos (PLC). "
+            "Canal de comunicação: fibra óptica OPGW (preferencial), PLC (canal de onda portadora) "
+            "ou microondas. Confiabilidade mínima: 99,9% per ONS. "
+            "Critério de decisão: POTT para linhas com fibra; BLOCKING para PLC. "
+            "Referência: IEC 60834-1:1999, IEEE C37.113 §8, ONS RE 3.LD.RP.06.02 §4."
+        )
+        res.assumptions.append(
+            "Função 85 é esquema lógico de comunicação — não tem pickup de corrente próprio. "
+            "Atua em conjunto com a função 21 (distância) ou 67/67N (direcional). "
+            "Verificar disponibilidade e qualidade do canal de teleproteção."
+        )
+
+    # ─── Função 79 (religamento automático) ────────────────────────────────────
+    elif func == "79":
+        res.pickup_primary_ka = 0.0
+        res.tms_suggested = 0.0
+        res.notes = (
+            "ANSI 79: Religamento automático — obrigatório para LT per ONS e concessionárias. "
+            "Configuração típica para LT AT/EAT: "
+            "• 1ª tentativa (monofásico rápido): dead time = 0,3–1,0 s (recloser shot 1). "
+            "• 2ª tentativa (trifásico lento): dead time = 15–30 s (recloser shot 2). "
+            "• Número de tentativas máx: 2–3 (verificar exigência do ONS/concessionária). "
+            "• Tempo de reset (reclaim time): 60–120 s. "
+            "Para religamento monofásico rápido: requer relé com capacidade de abertura monofásica "
+            "e disjuntor com acionamento de polo individual (IPO — Individual Pole Operation). "
+            "Verificar: (1) compatibilidade do disjuntor (IPO), (2) existência de função 25 "
+            "para verificação de sincronismo antes do fechamento. "
+            "Restrições: NÃO religar em cabos subterrâneos, transformadores, barramentos. "
+            "Referência: IEC 60255-157:2020, ANSI/IEEE C37.104, ONS RE 3.LD.RP.06.01."
+        )
+        res.assumptions.append(
+            "Função 79: parâmetros de temporização dependem da topologia da rede e "
+            "exigências específicas do operador (ONS/concessionária). Ajustar conforme PRO/MNT."
+        )
+
+    # ─── Função 25 (verificação de sincronismo) ───────────────────────────────
+    elif func == "25":
+        res.pickup_primary_ka = 0.0
+        res.tms_suggested = 0.0
+        res.notes = (
+            "ANSI 25: Verificação de sincronismo — obrigatório antes de religamento em LT interligadas. "
+            "Parâmetros típicos de ajuste: "
+            "• Janela de ângulo de fase: Δθ ≤ 25° (típico 15°–30°). "
+            "• Diferença de frequência: Δf ≤ 0,1 Hz. "
+            "• Diferença de tensão: ΔV ≤ 10% de Un. "
+            "• Tempo de verificação (check window): 100–200 ms. "
+            "Modos de operação: "
+            "  — Sync-check: apenas verifica condição, não fecha automaticamente. "
+            "  — Synchroscope: monitora convergência e comanda fechamento no instante certo. "
+            "Intertravamentos: o comando de fechamento do disjuntor via 79 deve passar pela "
+            "supervisão do 25, exceto para religamento rápido monofásico de linha terminal. "
+            "Verificar existência de TP de medição de tensão em ambos os lados do disjuntor. "
+            "Referência: IEC 60255-161:2016 (sync check), ANSI/IEEE C37.113 §7.2, "
+            "IEEE C37.104 §6, ONS RE 3.LD.RP.06.01."
+        )
+        res.assumptions.append(
+            "Função 25 requer TPs auxiliares de ambos os lados do disjuntor (barra e linha). "
+            "Ajustar janela de ângulo conforme estudo de estabilidade transitória."
         )
 
     else:

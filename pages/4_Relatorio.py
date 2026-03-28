@@ -57,6 +57,10 @@ def _generate_html_report(study, elements, result) -> str:
     user = st.session_state.user
     coordenograma_b64 = getattr(result, "coordenograma_b64", None)
 
+    ct_sizing   = getattr(result, "ct_sizing", []) or []
+    vt_sizing   = getattr(result, "vt_sizing", []) or []
+    br_sizing   = getattr(result, "breaker_sizing", []) or []
+
     # Monta tabela de curto-circuito
     sc_rows = ""
     for r in (result.short_circuit_results or []):
@@ -99,6 +103,58 @@ def _generate_html_report(study, elements, result) -> str:
           <td>{r.tms_suggested:.3f}</td>
           <td>{r.curve_type}</td>
           <td>{'✅' if r.sensitivity_ok else '❌'}</td>
+          <td style="font-size:9px; max-width:220px">{r.notes[:120] + '…' if len(r.notes) > 120 else r.notes}</td>
+        </tr>"""
+
+    ct_rows = ""
+    for r in ct_sizing:
+        ok_icon = "✅" if r.saturation_check_ok else "⚠️"
+        ct_rows += f"""
+        <tr>
+          <td>{r.element_code}</td>
+          <td>{r.ip_ratio_string}</td>
+          <td>{r.accuracy_class}</td>
+          <td>{r.alf_required:.1f}</td>
+          <td>{r.alf_adopted}</td>
+          <td>{r.burden_total_va:.1f}</td>
+          <td>{r.sn_tc_va:.0f}</td>
+          <td>{r.vk_adopted_v:.0f}</td>
+          <td>{r.bil_kv}</td>
+          <td>{ok_icon}</td>
+          <td style="font-size:9px">{r.designation_string}</td>
+        </tr>"""
+
+    vt_rows = ""
+    for r in vt_sizing:
+        ok_icon = "✅" if r.burden_check_ok else "⚠️"
+        vt_rows += f"""
+        <tr>
+          <td>{r.element_code}</td>
+          <td>{r.ratio_string}</td>
+          <td>{r.accuracy_class}</td>
+          <td>{r.burden_total_va:.1f}</td>
+          <td>{r.sn_vt_va:.0f}</td>
+          <td>{r.ktf_value:.1f}</td>
+          <td>{r.ktf_description[:30]}</td>
+          <td>{r.bil_kv}</td>
+          <td>{ok_icon}</td>
+          <td style="font-size:9px">{r.designation_string}</td>
+        </tr>"""
+
+    br_rows = ""
+    for r in br_sizing:
+        ok_icon = "✅" if (r.voltage_ok and r.current_ok and r.breaking_ok) else "⚠️"
+        br_rows += f"""
+        <tr>
+          <td>{r.element_code}</td>
+          <td>{r.device_type}</td>
+          <td>{r.voltage_class_kv:.1f}</td>
+          <td>{r.nominal_current_a:.0f}</td>
+          <td>{r.breaking_current_ka:.1f}</td>
+          <td>{r.making_current_ka:.1f}</td>
+          <td>{r.short_time_current_ka:.1f}</td>
+          <td>{r.short_time_duration_s:.1f}</td>
+          <td>{ok_icon}</td>
         </tr>"""
 
     html = f"""<!DOCTYPE html>
@@ -171,9 +227,15 @@ def _generate_html_report(study, elements, result) -> str:
 
 {"<h2>2. Inrush de Transformadores — IEC 60076-1</h2><table><thead><tr><th>Transformador</th><th>kVA</th><th>In prim. (A)</th><th>k_inrush</th><th>I_inrush pico (kA)</th><th>I_inrush rms (kA)</th><th>2ª harm. (%)</th><th>Pickup mín 51 (kA)</th></tr></thead><tbody>" + inrush_rows + "</tbody></table>" if inrush_rows else ""}
 
-{"<h2>3. Sugestões de Ajuste de Relés — IEC 60255-151</h2><table><thead><tr><th>Elemento</th><th>Função ANSI</th><th>Pickup prim. (kA)</th><th>Pickup sec. (A)</th><th>TMS</th><th>Curva</th><th>Sensib.</th></tr></thead><tbody>" + relay_rows + "</tbody></table>" if relay_rows else ""}
+{"<h2>3. Parametrização de Relés de Proteção — IEC 60255-151 / ANSI/IEEE C37.113</h2><table><thead><tr><th>Elemento</th><th>Função ANSI</th><th>Pickup prim. (kA)</th><th>Pickup sec. (A)</th><th>TMS</th><th>Curva</th><th>Sensib.</th><th>Notas / Referências</th></tr></thead><tbody>" + relay_rows + "</tbody></table>" if relay_rows else ""}
 
-{"<h2>4. Coordenograma de Proteção — IEC 60255-151</h2><div style='text-align:center; margin:16px 0;'><img src='data:image/png;base64," + coordenograma_b64 + "' style='max-width:100%; height:auto; border:1px solid #e2e8f0; border-radius:6px;' alt='Coordenograma de Proteção'/></div>" if coordenograma_b64 else ""}
+{"<h2>4. Dimensionamento de TCs — ABNT NBR IEC 61869-2</h2><table><thead><tr><th>Elemento</th><th>Relação TC</th><th>Classe</th><th>ALF req.</th><th>ALF adot.</th><th>Carga (VA)</th><th>Sn (VA)</th><th>Vk (V)</th><th>NBI (kV)</th><th>Sat.</th><th>Designação completa</th></tr></thead><tbody>" + ct_rows + "</tbody></table>" if ct_rows else ""}
+
+{"<h2>5. Dimensionamento de TPs — ABNT NBR IEC 61869-3</h2><table><thead><tr><th>Elemento</th><th>Relação TP</th><th>Classe</th><th>Carga (VA)</th><th>Sn (VA)</th><th>Ktf</th><th>Tipo aterramento</th><th>NBI (kV)</th><th>Carga ok</th><th>Designação completa</th></tr></thead><tbody>" + vt_rows + "</tbody></table>" if vt_rows else ""}
+
+{"<h2>6. Dimensionamento de Disjuntores — IEC 62271-100</h2><table><thead><tr><th>Elemento</th><th>Tipo</th><th>Vn (kV)</th><th>In (A)</th><th>Icc corte (kA)</th><th>Icc fecha. (kA)</th><th>Icc suport. (kA)</th><th>t_suport. (s)</th><th>Status</th></tr></thead><tbody>" + br_rows + "</tbody></table>" if br_rows else ""}
+
+{"<h2>7. Coordenograma de Proteção — IEC 60255-151</h2><div style='text-align:center; margin:16px 0;'><img src='data:image/png;base64," + coordenograma_b64 + "' style='max-width:100%; height:auto; border:1px solid #e2e8f0; border-radius:6px;' alt='Coordenograma de Proteção'/></div>" if coordenograma_b64 else ""}
 
 <div class="footer">
   BK Engenharia e Tecnologia · BK Estudo de Proteção v2.0 · IEC 60909:2016 · IEC 60255-151 · IEC 61869-2 · IEC 62271-100<br>
@@ -189,12 +251,10 @@ html_report = _generate_html_report(study, elements, result)
 # ─── Coordenograma (se disponível) ─────────────────────────────────────────────
 coordenograma_b64 = getattr(result, "coordenograma_b64", None)
 if coordenograma_b64:
-    st.markdown("### 📈 Coordenograma de Proteção")
-    st.image(
-        f"data:image/png;base64,{coordenograma_b64}",
-        caption="Coordenograma de Proteção — IEC 60255-151",
-        use_container_width=True,
-    )
+    st.markdown("### 📈 Coordenograma de Proteção — IEC 60255-151")
+    # st.image exige bytes ou array — não aceita data URI diretamente
+    img_bytes = base64.b64decode(coordenograma_b64)
+    st.image(img_bytes, caption="Coordenograma de Proteção — IEC 60255-151", use_container_width=True)
     st.markdown("---")
 
 # Preview e download
