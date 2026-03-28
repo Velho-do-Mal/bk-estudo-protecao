@@ -55,6 +55,7 @@ import base64
 def _generate_html_report(study, elements, result) -> str:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     user = st.session_state.user
+    coordenograma_b64 = getattr(result, "coordenograma_b64", None)
 
     # Monta tabela de curto-circuito
     sc_rows = ""
@@ -172,6 +173,8 @@ def _generate_html_report(study, elements, result) -> str:
 
 {"<h2>3. Sugestões de Ajuste de Relés — IEC 60255-151</h2><table><thead><tr><th>Elemento</th><th>Função ANSI</th><th>Pickup prim. (kA)</th><th>Pickup sec. (A)</th><th>TMS</th><th>Curva</th><th>Sensib.</th></tr></thead><tbody>" + relay_rows + "</tbody></table>" if relay_rows else ""}
 
+{"<h2>4. Coordenograma de Proteção — IEC 60255-151</h2><div style='text-align:center; margin:16px 0;'><img src='data:image/png;base64," + coordenograma_b64 + "' style='max-width:100%; height:auto; border:1px solid #e2e8f0; border-radius:6px;' alt='Coordenograma de Proteção'/></div>" if coordenograma_b64 else ""}
+
 <div class="footer">
   BK Engenharia e Tecnologia · BK Estudo de Proteção v2.0 · IEC 60909:2016 · IEC 60255-151 · IEC 61869-2 · IEC 62271-100<br>
   Este relatório é uma sugestão técnica. A responsabilidade final é do engenheiro habilitado (CREA).
@@ -182,6 +185,17 @@ def _generate_html_report(study, elements, result) -> str:
 
 
 html_report = _generate_html_report(study, elements, result)
+
+# ─── Coordenograma (se disponível) ─────────────────────────────────────────────
+coordenograma_b64 = getattr(result, "coordenograma_b64", None)
+if coordenograma_b64:
+    st.markdown("### 📈 Coordenograma de Proteção")
+    st.image(
+        f"data:image/png;base64,{coordenograma_b64}",
+        caption="Coordenograma de Proteção — IEC 60255-151",
+        use_container_width=True,
+    )
+    st.markdown("---")
 
 # Preview e download
 st.markdown("### Prévia do Relatório")

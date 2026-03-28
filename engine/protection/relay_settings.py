@@ -279,6 +279,36 @@ def suggest_relay_settings(
             "Esta sugestão é apenas um ponto de partida."
         )
 
+    # ─── Função 67 / 67N (sobrecorrente direcional) ───────────────────────────
+    elif func in ("67", "67N"):
+        # Mesma lógica de pickup da 51, com qualificador direcional
+        ip_min_by_load = 1.2 * i_load_ka if i_load_ka > 0 else 0.01
+        ip = max(ip_min_by_load, 0.15 * icc_ref)
+        res.pickup_primary_ka = ip
+        res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
+        tms = 0.1
+        res.tms_suggested = tms
+        res.t_at_icc_3ph_s = curve.operating_time(icc_3ph_ka, ip, tms)
+        res.t_at_icc_2ph_s = curve.operating_time(icc_2ph_ka, ip, tms) if icc_2ph_ka > 0 else None
+        res.assumptions.append(
+            f"Ip(67) = max(1,2×I_carga, 15%×Icc3φ) = {ip:.3f} kA. "
+            "TMS = 0,1 (padrão conservador)."
+        )
+        res.notes = (
+            "ANSI 67: Sobrecorrente direcional de fase. "
+            "Confirmar ângulo de polarização (típico θ = 30°–45°) com o relé. "
+            "Tensão de polarização: fase-fase ou sequência positiva. "
+            "Referência: IEC 60255-151 Seção 8, Blackburn Cap. 11."
+        )
+        if ip > 0:
+            ratio = icc_2ph_ka / ip if icc_2ph_ka > 0 else icc_ref / ip
+            res.sensitivity_ratio = ratio
+            res.sensitivity_ok = ratio >= 2.0
+            if not res.sensitivity_ok:
+                res.warnings.append(
+                    f"ALERTA DE SENSIBILIDADE (67): I_falta/I_pickup = {ratio:.2f} < 2,0."
+                )
+
     # ─── Função 21 (distância) ────────────────────────────────────────────────
     elif func == "21":
         # Zona 1: 85% da impedância da linha protegida

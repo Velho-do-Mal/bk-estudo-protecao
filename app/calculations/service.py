@@ -158,12 +158,12 @@ class CalculationService:
                 active_elements, sc_results_raw, system
             )
 
-        # 6. Coordenograma
+        # 6. Coordenograma — passa relay_results para plotar as curvas de proteção
         coord_b64 = None
         try:
             coord_input = build_coordenograma_from_results(
                 element_results=sc_results_raw,
-                relay_settings=[],  # será preenchido quando relay_settings tiver dados de curva
+                relay_settings=relay_results,  # curvas de proteção calculadas
                 project_name="",
                 study_name=system_type_label(system),
             )
@@ -330,80 +330,92 @@ def _suggest_all_relay_settings(active_elements, sc_results_raw) -> list[RelaySe
         # Secundário padrão Brasil = 5 A; relação de transformação = n = Ip/Is
         ct_ratio = ct_primary_a   # parâmetro = primário em A (Is=5A implícito)
 
-        # Sugerir 51 para todos os elementos com corrente de curto
-        if icc3 > 0:
-            rs51 = suggest_relay_settings(
-                element_code=elem.code,
-                ansi_function="51",
-                icc_3ph_ka=icc3,
-                icc_2ph_ka=icc2,
-                icc_1ph_ka=icc1,
-                i_load_ka=i_load_ka,
-                ct_ratio=ct_ratio,
-                curve_type="NI",
+        def _make_relay_output(rs, icc3_ref: float, curve: str = None) -> RelaySettingOutput:
+            return RelaySettingOutput(
+                element_code=rs.element_code,
+                ansi_function=rs.ansi_function,
+                pickup_primary_ka=rs.pickup_primary_ka,
+                pickup_secondary_a=rs.pickup_secondary_a,
+                tms_suggested=rs.tms_suggested,
+                curve_type=curve or rs.curve_type,
+                icc_3ph_ka=icc3_ref,
+                t_at_icc_3ph_s=rs.t_at_icc_3ph_s,
+                t_at_icc_2ph_s=rs.t_at_icc_2ph_s,
+                t_at_icc_1ph_s=rs.t_at_icc_1ph_s,
+                sensitivity_ok=rs.sensitivity_ok,
+                sensitivity_ratio=rs.sensitivity_ratio,
+                warnings=rs.warnings,
+                assumptions=rs.assumptions,
+                notes=rs.notes,
             )
-            relay_results.append(RelaySettingOutput(
-                element_code=rs51.element_code,
-                ansi_function=rs51.ansi_function,
-                pickup_primary_ka=rs51.pickup_primary_ka,
-                pickup_secondary_a=rs51.pickup_secondary_a,
-                tms_suggested=rs51.tms_suggested,
-                curve_type=rs51.curve_type,
-                t_at_icc_3ph_s=rs51.t_at_icc_3ph_s,
-                t_at_icc_2ph_s=rs51.t_at_icc_2ph_s,
-                t_at_icc_1ph_s=rs51.t_at_icc_1ph_s,
-                sensitivity_ok=rs51.sensitivity_ok,
-                sensitivity_ratio=rs51.sensitivity_ratio,
-                warnings=rs51.warnings,
-                assumptions=rs51.assumptions,
-                notes=rs51.notes,
-            ))
 
-            # 50 instantânea
+        if icc3 > 0:
+            # 51 — sobrecorrente temporizada de fase (NI)
+            rs51 = suggest_relay_settings(
+                element_code=elem.code, ansi_function="51",
+                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
+            )
+            relay_results.append(_make_relay_output(rs51, icc3))
+
+            # 50 — instantânea de fase
             rs50 = suggest_relay_settings(
-                element_code=elem.code,
-                ansi_function="50",
-                icc_3ph_ka=icc3,
-                icc_2ph_ka=icc2,
-                icc_1ph_ka=icc1,
-                i_load_ka=i_load_ka,
-                ct_ratio=ct_ratio,
+                element_code=elem.code, ansi_function="50",
+                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                i_load_ka=i_load_ka, ct_ratio=ct_ratio,
             )
             relay_results.append(RelaySettingOutput(
-                element_code=rs50.element_code,
-                ansi_function=rs50.ansi_function,
+                element_code=rs50.element_code, ansi_function="50",
                 pickup_primary_ka=rs50.pickup_primary_ka,
                 pickup_secondary_a=rs50.pickup_secondary_a,
-                tms_suggested=0.0,
-                curve_type="—",
-                t_at_icc_3ph_s=0.05,
-                warnings=rs50.warnings,
-                assumptions=rs50.assumptions,
-                notes=rs50.notes,
+                tms_suggested=0.0, curve_type="—",
+                icc_3ph_ka=icc3, t_at_icc_3ph_s=0.05,
+                warnings=rs50.warnings, assumptions=rs50.assumptions, notes=rs50.notes,
             ))
 
-        # 51N se houver Icc1ph (terra)
+            # 67 — sobrecorrente direcional de fase (linhas e alimentadores)
+            if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                rs67 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="67",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
+                )
+                relay_results.append(_make_relay_output(rs67, icc3))
+
+            # 21 — distância (linhas com impedância conhecida)
+            if elem.element_type in (ElementType.linha, ElementType.cabo) and elem.length_km > 0:
+                rs21 = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="21",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs21, icc3, curve="—"))
+
+            # 87T — diferencial de transformador
+            if elem.element_type == ElementType.transformador and elem.trafo_kva > 0:
+                rs87t = suggest_relay_settings(
+                    element_code=elem.code, ansi_function="87T",
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio,
+                )
+                relay_results.append(_make_relay_output(rs87t, icc3, curve="—"))
+
+        # 51N / 50N — terra (quando há corrente monofásica)
         if icc1 > 0:
             rs51n = suggest_relay_settings(
-                element_code=elem.code,
-                ansi_function="51N",
-                icc_3ph_ka=icc3,
-                icc_2ph_ka=icc2,
-                icc_1ph_ka=icc1,
-                i_load_ka=0.0,
-                ct_ratio=ct_ratio,
-                curve_type="EI",
+                element_code=elem.code, ansi_function="51N",
+                icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
             )
             relay_results.append(RelaySettingOutput(
-                element_code=rs51n.element_code,
-                ansi_function=rs51n.ansi_function,
+                element_code=rs51n.element_code, ansi_function="51N",
                 pickup_primary_ka=rs51n.pickup_primary_ka,
                 pickup_secondary_a=rs51n.pickup_secondary_a,
                 tms_suggested=rs51n.tms_suggested,
                 curve_type=rs51n.curve_type,
+                icc_3ph_ka=icc1,  # usa icc1 como referência para o coordenograma de terra
                 t_at_icc_1ph_s=rs51n.t_at_icc_1ph_s,
-                warnings=rs51n.warnings,
-                assumptions=rs51n.assumptions,
+                warnings=rs51n.warnings, assumptions=rs51n.assumptions,
             ))
 
     return relay_results
@@ -448,6 +460,11 @@ def _size_all_equipment(active_elements, sc_results_raw, system) -> tuple:
             i_load_a = (elem.load_mva * 1e6) / (math.sqrt(3) * elem.voltage_kv * 1000.0)
         elif elem.nominal_current_a > 0:
             i_load_a = elem.nominal_current_a
+
+        # Fallback: para linhas/cabos sem corrente de carga informada,
+        # usa estimativa mínima (5% da Icc3ph) para que o dimensionamento seja executado
+        if i_load_a == 0 and icc3 > 0:
+            i_load_a = max(10.0, icc3 * 1000.0 * 0.05)
 
         if i_load_a > 0 and icc3 > 0:
             # ── Dimensionamento TC ────────────────────────────────────────────

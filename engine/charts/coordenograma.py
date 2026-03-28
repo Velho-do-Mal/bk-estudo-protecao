@@ -270,8 +270,9 @@ def build_coordenograma_from_results(
             continue
 
         tms = rs.tms_suggested if rs.tms_suggested > 0 else 0.1
+        icc_ref = getattr(rs, "icc_3ph_ka", 0.0) or 0.0
         i_max_plot = max(
-            rs.icc_3ph_ka * 1.5,
+            icc_ref * 1.5 if icc_ref > 0 else 0.0,
             rs.pickup_primary_ka * 20,
         )
         if i_max_plot <= 0:

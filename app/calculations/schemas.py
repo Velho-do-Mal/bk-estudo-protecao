@@ -131,6 +131,7 @@ class RelaySettingOutput(BaseModel):
     pickup_secondary_a: float
     tms_suggested: float
     curve_type: str
+    icc_3ph_ka: float = 0.0   # corrente de referência (para coordenograma)
     t_at_icc_3ph_s: Optional[float] = None
     t_at_icc_2ph_s: Optional[float] = None
     t_at_icc_1ph_s: Optional[float] = None
