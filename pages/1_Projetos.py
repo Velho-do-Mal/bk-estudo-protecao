@@ -21,7 +21,7 @@ with st.expander("➕ Novo Projeto", expanded=False):
         number = c1.text_input("Número do Projeto *", placeholder="BK-2025-001")
         name = c2.text_input("Nome do Projeto *", placeholder="SE Industrial — 13,8 kV")
         engineer = st.text_input("Engenheiro Responsável", placeholder="Nome do responsável")
-        description = st.text_area("Descrição", rows=2)
+        description = st.text_area("Descrição", height=80)
         if st.form_submit_button("Criar Projeto", type="primary"):
             if not number or not name:
                 st.error("Número e nome são obrigatórios.")
