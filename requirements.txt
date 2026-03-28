@@ -1,40 +1,40 @@
 # BK_Estudo_Proteção v2 — Dependências
-# Instalar com: pip install -r requirements.txt
+# Streamlit Cloud usa Python 3.14 — todos os pacotes sem pin exato para pegar wheels cp314
 
 # ─── Streamlit ────────────────────────────────────────────────────────────────
 streamlit>=1.31.0
 
-# ─── Framework Web (FastAPI — mantido para compatibilidade com módulos app/) ──
-fastapi==0.115.5
-uvicorn==0.32.1
-python-multipart==0.0.12
-jinja2==3.1.4
+# ─── Framework Web (mantido para compatibilidade com módulos app/) ────────────
+fastapi>=0.115.5
+uvicorn>=0.32.0
+python-multipart>=0.0.12
+jinja2>=3.1.4
 
 # ─── Banco de dados ───────────────────────────────────────────────────────────
-sqlalchemy==2.0.36
-alembic==1.14.0
-pg8000>=1.31.0            # PostgreSQL sync — puro Python, sem compilação C (Python 3.14 ok)
-aiosqlite==0.20.0        # SQLite async (dev local)
+sqlalchemy>=2.0.40        # >=2.0.40 tem suporte oficial Python 3.14
+alembic>=1.14.0
+pg8000>=1.31.0            # PostgreSQL sync — puro Python, zero compilação C
+aiosqlite>=0.20.0         # SQLite async (dev local)
 
 # ─── Autenticação ─────────────────────────────────────────────────────────────
-pyjwt==2.9.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.2.0
+pyjwt>=2.9.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.2.0
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
 pydantic>=2.10            # >=2.10 usa pydantic-core com PyO3>=0.23 (suporta Python 3.14)
-pydantic-settings>=2.7   # compatível com pydantic>=2.10
-python-dotenv==1.0.1
+pydantic-settings>=2.7
+python-dotenv>=1.0.1
 
-# ─── Cálculos e gráficos (sem pin de versão para compatibilidade com Python 3.12+) ──
+# ─── Cálculos e gráficos ──────────────────────────────────────────────────────
 numpy>=1.26
 matplotlib>=3.8
 scipy>=1.11
 
 # ─── Relatórios ───────────────────────────────────────────────────────────────
 openpyxl>=3.1
-Pillow>=10.0             # sem pin — versões novas têm wheels para Python 3.12+
+Pillow>=10.0
 # weasyprint — requer libcairo/libpango; não suportado no Streamlit Cloud
 
 # ─── Utilitários ──────────────────────────────────────────────────────────────
-email-validator==2.2.0
+email-validator>=2.2.0
