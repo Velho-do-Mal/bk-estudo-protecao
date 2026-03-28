@@ -7,6 +7,10 @@ uvicorn[standard]==0.32.1
 python-multipart==0.0.12
 jinja2==3.1.4
 
+# ─── Streamlit (nova interface) ───────────────────────────────────────────────
+streamlit>=1.31.0
+watchdog>=3.0.0
+
 # ─── Banco de dados ───────────────────────────────────────────────────────────
 sqlalchemy[asyncio]==2.0.36
 alembic==1.14.0

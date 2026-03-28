@@ -185,12 +185,26 @@
       </p>
     </div>
 
+    <!-- Legenda topologia série/paralelo -->
+    <div class="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-start gap-3 text-xs">
+      <span class="text-amber-600 font-bold mt-0.5">⚡ Topologia:</span>
+      <div class="text-amber-800 space-y-0.5">
+        <p><strong>Série (em cascata):</strong> cada elemento parte do <em>bus_to</em> do anterior.
+          Ex: Fonte→<code>T1</code> (De:<code>P0</code> / Para:<code>QGBT1</code>) → Carga (De:<code>QGBT1</code>)</p>
+        <p><strong>Paralelo (mesmo ponto de origem):</strong> dois ou mais elementos com o <strong>mesmo "De (barra)"</strong>.
+          Ex: T1 (De:<code>P0</code>→<code>QGBT1</code>) <em>e</em> T2 (De:<code>P0</code>→<code>QGBT2</code>) — ambos do barramento da concessionária.</p>
+        <p class="text-gray-500 italic">Deixe "De" em branco para auto-sequencial (P0→P1→P2…). Preencha manualmente para definir paralelos.</p>
+      </div>
+    </div>
+
     <div class="overflow-x-auto">
-      <table class="w-full engineering-table text-left" style="min-width: 1400px;">
+      <table class="w-full engineering-table text-left" style="min-width: 1600px;">
         <thead>
           <tr>
             <th class="px-2 py-2 w-8 text-center sticky left-0 bg-bk-navy">#</th>
             <th class="px-2 py-2 w-20">Código</th>
+            <th class="px-2 py-2 w-20 text-yellow-200" title="Barra de origem (igual = paralelo)">De (barra)</th>
+            <th class="px-2 py-2 w-20 text-blue-200" title="Barra de destino (ponto de medição)">Para (barra)</th>
             <th class="px-2 py-2 w-24">Tipo</th>
             <th class="px-2 py-2 w-32">Descrição / Ponto</th>
             <th class="px-2 py-2 w-16">V [kV]</th>
@@ -220,7 +234,23 @@
               <td class="px-1 py-1">
                 <input type="text" x-model="row.code"
                        class="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-bk-blue"
-                       :placeholder="'P' + (idx+1)">
+                       :placeholder="'E' + (idx+1)">
+              </td>
+
+              <!-- bus_from: barra de origem — igual em elementos paralelos -->
+              <td class="px-1 py-1">
+                <input type="text" x-model="row.bus_from"
+                       class="w-full border border-amber-200 bg-amber-50 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-amber-400"
+                       placeholder="P0 (auto)"
+                       title="Barra de origem. Elementos com o mesmo valor aqui são PARALELOS.">
+              </td>
+
+              <!-- bus_to: barra de destino (ponto de medição de Icc) -->
+              <td class="px-1 py-1">
+                <input type="text" x-model="row.bus_to"
+                       class="w-full border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5 text-xs font-mono focus:ring-1 focus:ring-blue-400"
+                       :placeholder="row.code || 'auto'"
+                       title="Barra de destino (ponto onde será calculado Icc). Deixe em branco para usar o Código.">
               </td>
 
               <td class="px-1 py-1">
@@ -324,7 +354,12 @@
     <div class="border-t border-gray-100 px-4 py-2 flex items-center justify-between bg-gray-50">
       <p class="text-xs text-gray-400 font-mono">
         <span x-text="rows.filter(r=>r.is_active).length"></span> trechos ativos
-        <span class="ml-2 text-blue-500">P0 (fonte) → P1 → P2 → ... → Pn (Z acumulada a cada ponto)</span>
+        <span class="ml-2 text-amber-600">
+          Série: De P0 → T1 → QGBT1 → ...
+        </span>
+        <span class="ml-2 text-blue-500">
+          Paralelo: T1 (De: P0) + T2 (De: P0) → barramentos independentes
+        </span>
       </p>
       <button @click="addRow()" class="text-xs text-bk-blue hover:underline">+ Adicionar linha</button>
     </div>
@@ -762,11 +797,22 @@ function networkGrid() {
       } catch(e) { /* ignora */ }
     },
 
-    // Auto-numera bus_from/bus_to sequencialmente
+    // Atribui bus_from/bus_to automáticos apenas quando não definidos pelo usuário.
+    // Regras:
+    //   bus_from vazio → usa bus_to do elemento anterior (série), ou P0 se for o primeiro
+    //   bus_to vazio   → usa o código do próprio elemento (ponto de medição natural)
     _assignBuses() {
+      let prevBusTo = 'P0';
       this.rows.forEach((row, i) => {
-        if (!row.bus_from || row.bus_from.startsWith('P')) row.bus_from = `P${i}`;
-        if (!row.bus_to || row.bus_to.startsWith('P')) row.bus_to = `P${i+1}`;
+        // Preserva bus_from já preenchido (permite paralelos definidos pelo usuário)
+        if (!row.bus_from) {
+          row.bus_from = (i === 0) ? 'P0' : prevBusTo;
+        }
+        // bus_to: usa o código se disponível, senão Pn+1
+        if (!row.bus_to) {
+          row.bus_to = row.code || `P${i + 1}`;
+        }
+        prevBusTo = row.bus_to;
       });
     },
 

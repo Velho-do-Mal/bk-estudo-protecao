@@ -8,9 +8,13 @@ Rotas para gestão de estudos (dados do sistema, elementos da rede).
 
 from __future__ import annotations
 
+import logging
 import math
+import traceback
 import uuid
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -24,6 +28,49 @@ from app.studies.models import NetworkElement, Study
 
 router = APIRouter(prefix="/studies", tags=["Estudos"])
 api_router = APIRouter(prefix="/api/studies", tags=["Estudos API"])
+
+
+def _element_to_dict(e: NetworkElement) -> dict:
+    """Serializa NetworkElement ORM para dict JSON-safe (usado no template)."""
+    return {
+        "id": str(e.id),
+        "study_id": str(e.study_id),
+        "row_order": e.row_order,
+        "is_active": e.is_active,
+        "code": e.code,
+        "element_type": e.element_type.value if e.element_type else "linha",
+        "name": e.name,
+        "bus_from": e.bus_from,
+        "bus_to": e.bus_to,
+        "voltage_kv": e.voltage_kv,
+        "length_km": e.length_km,
+        "r1_ohm_km": e.r1_ohm_km,
+        "x1_ohm_km": e.x1_ohm_km,
+        "r0_ohm_km": e.r0_ohm_km,
+        "x0_ohm_km": e.x0_ohm_km,
+        "cable_name": e.cable_name,
+        "trafo_kva": e.trafo_kva,
+        "trafo_z_percent": e.trafo_z_percent,
+        "trafo_z0_percent": e.trafo_z0_percent,
+        "trafo_connection": e.trafo_connection,
+        "trafo_neutral_z_ohm": e.trafo_neutral_z_ohm,
+        "trafo_voltage_sec_kv": e.trafo_voltage_sec_kv,
+        "gen_s_sub_mva": e.gen_s_sub_mva,
+        "gen_xpp_percent": e.gen_xpp_percent,
+        "gen_connection": e.gen_connection,
+        "gen_neutral_z_ohm": e.gen_neutral_z_ohm,
+        "motor_s_mva": e.motor_s_mva,
+        "motor_xpp_percent": e.motor_xpp_percent,
+        "motor_connection": e.motor_connection,
+        "motor_decay_s": e.motor_decay_s,
+        "load_mva": e.load_mva,
+        "load_power_factor": e.load_power_factor,
+        "nominal_current_a": e.nominal_current_a,
+        "thermal_capacity_ka_1s": e.thermal_capacity_ka_1s,
+        "notes": e.notes,
+        "data_origin": e.data_origin.value if e.data_origin else "informado",
+        "assumptions": e.assumptions,
+    }
 
 
 def _study_to_dict(s: Study) -> dict:
@@ -232,18 +279,22 @@ async def network_page(
         .where(NetworkElement.study_id == study_id)
         .order_by(NetworkElement.row_order)
     )
-    elements = result.scalars().all()
+    elements = [_element_to_dict(e) for e in result.scalars().all()]
 
-    return templates.TemplateResponse(
-        "studies/network.html",
-        {
-            "request": request,
-            "study": study,
-            "elements": elements,
-            "user": current_user,
-            "title": f"Rede — {study.study_type}",
-        },
-    )
+    try:
+        return templates.TemplateResponse(
+            "studies/network.html",
+            {
+                "request": request,
+                "study": study,
+                "elements": elements,
+                "user": current_user,
+                "title": f"Rede — {study.study_type}",
+            },
+        )
+    except Exception as exc:
+        logger.error("ERRO ao renderizar network.html: %s\n%s", exc, traceback.format_exc())
+        raise
 
 
 @router.post("/{study_id}/elements", status_code=status.HTTP_201_CREATED)
@@ -320,7 +371,7 @@ async def equipment_page(
         .where(NetworkElement.study_id == study_id)
         .order_by(NetworkElement.row_order)
     )
-    elements = elem_result.scalars().all()
+    elements = [_element_to_dict(e) for e in elem_result.scalars().all()]
 
     relay_result = await db.execute(
         select(StudyRelay).where(StudyRelay.study_id == study_id)
@@ -358,7 +409,7 @@ async def diagram_page(
         .where(NetworkElement.study_id == study_id)
         .order_by(NetworkElement.row_order)
     )
-    elements = elem_result.scalars().all()
+    elements = [_element_to_dict(e) for e in elem_result.scalars().all()]
 
     return templates.TemplateResponse(
         "studies/diagram.html",
