@@ -89,8 +89,7 @@ with col2:
                     "role": user.role,
                     "email": user.email,
                 }
-                st.success("Login realizado!")
-                st.switch_page("pages/1_Projetos.py")
+                st.rerun()   # sai do contexto do form; o redirect no topo da página faz o switch
             else:
                 st.error("Usuário ou senha incorretos.")
 
