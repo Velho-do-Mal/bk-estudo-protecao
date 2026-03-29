@@ -353,11 +353,31 @@ if calc_clicked or st.session_state.get("_recalc"):
                 loop.close()
 
                 st.session_state["last_result"] = result
-                st.success("✅ Cálculo concluído!")
+                # ── Painel de diagnóstico pós-cálculo ─────────────────────────
+                n_sc  = len(result.short_circuit_results)
+                n_rel = len(result.relay_settings)
+                n_ct  = len(result.ct_sizing)
+                n_vt  = len(result.vt_sizing)
+                n_br  = len(result.breaker_sizing)
+                n_wrn = len(result.global_warnings)
+                coord_ok = result.coordenograma_b64 is not None
+                from datetime import datetime
+                ts = datetime.now().strftime("%H:%M:%S")
+                st.success(
+                    f"✅ Cálculo concluído às {ts} — "
+                    f"Icc: {n_sc} | Relés: {n_rel} | TCs: {n_ct} | "
+                    f"TPs: {n_vt} | Disj: {n_br} | "
+                    f"Coord: {'✅' if coord_ok else '❌'} | Avisos: {n_wrn}"
+                )
+                if result.global_warnings:
+                    with st.expander(f"⚠️ {n_wrn} aviso(s) de cálculo — clique para ver diagnóstico"):
+                        for w in result.global_warnings:
+                            st.code(w, language="text")
             except Exception as e:
                 import traceback
                 st.error(f"Erro no cálculo: {e}")
                 st.code(traceback.format_exc(), language="text")
+                st.session_state.pop("last_result", None)  # limpa resultado antigo
                 result = None
 
 # ─── Exibe resultados ─────────────────────────────────────────────────────────
