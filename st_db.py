@@ -1,43 +1,55 @@
 """
 st_db.py — Utilitários síncronos de banco de dados para o Streamlit.
-Usa DATABASE_URL_SYNC (psycopg2 para Postgres, sqlite para dev).
-"""
+Usa DATABASE_URL_SYNC (pg8000 para Postgres, aiosqlite para dev).
 
+Correções v2.1:
+  - [FIX-1] save_elements: guard explícito para study is None
+  - [FIX-2] authenticate_user: expunge após commit (objeto estável)
+  - [FIX-3] passlib removido do uso — bcrypt direto
+  - [FIX-4] SSL context com CERT_NONE para compatibilidade Neon/Railway
+  - [FIX-5] save_elements: X/R configurável via parâmetro (default 10.0)
+  - [FIX-6] create_study: study_type como campo separado do name
+  - [FIX-7] delete_project/delete_study: guard para objeto não encontrado
+"""
 from __future__ import annotations
 
+import math
+import ssl as _ssl
 import uuid
 from contextlib import contextmanager
 from typing import Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, delete
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 import app.models_registry  # registra todos os modelos ORM  # noqa: F401
 
 settings = get_settings()
 
-def _build_db_url(url: str) -> tuple:
+
+# ─── Conexão ──────────────────────────────────────────────────────────────────
+
+def _build_db_url(url: str) -> tuple[str, dict]:
     """
     Normaliza URL PostgreSQL para pg8000.
-    Retorna (url_limpa, connect_args) — SSL é passado via connect_args,
-    pois pg8000 não aceita ssl=require/sslmode=require na query string.
+    Remove parâmetros SSL da query string e passa ssl_context via connect_args.
+    [FIX-4] ctx.check_hostname=False / CERT_NONE para compatibilidade Neon.
     """
-    import ssl as _ssl
-    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
-
     url = url.replace("postgres://", "postgresql://", 1)
-
     connect_args: dict = {}
 
     if "postgresql" in url:
-        # Troca driver para pg8000
-        for prefix in ("postgresql+asyncpg://", "postgresql+psycopg2://", "postgresql://"):
+        for prefix in (
+            "postgresql+asyncpg://",
+            "postgresql+psycopg2://",
+            "postgresql://",
+        ):
             if url.startswith(prefix):
                 url = "postgresql+pg8000://" + url[len(prefix):]
                 break
 
-        # Remove parâmetros SSL da query string (pg8000 não os entende)
         parsed = urlparse(url)
         qs = parse_qs(parsed.query, keep_blank_values=True)
         ssl_needed = (
@@ -48,15 +60,19 @@ def _build_db_url(url: str) -> tuple:
         url = urlunparse(parsed._replace(query=clean_query))
 
         if ssl_needed:
-            # pg8000 aceita ssl_context via connect_args
+            # [FIX-4] Neon/Railway: desabilitar verificação de hostname/cert
+            # para evitar falhas em ambientes sem CA bundle atualizado.
+            # Em produção com CA confiável, remover as duas linhas abaixo.
             ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
             connect_args["ssl_context"] = ctx
 
     return url, connect_args
 
 
 def _get_raw_url() -> str:
-    """Lê a URL do banco: primeiro st.secrets (Streamlit Cloud), depois settings (.env local)."""
+    """Lê URL do banco: primeiro st.secrets (Cloud), depois .env local."""
     try:
         import streamlit as st
         raw = st.secrets.get("DATABASE_URL_SYNC") or st.secrets.get("DATABASE_URL")
@@ -74,12 +90,13 @@ engine = create_engine(
     pool_pre_ping=True,
     connect_args=_connect_args,
 )
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 @contextmanager
 def get_session():
-    """Context manager de sessão síncrona."""
+    """Context manager de sessão síncrona com commit/rollback automático."""
     db: Session = SessionLocal()
     try:
         yield db
@@ -94,9 +111,16 @@ def get_session():
 # ─── Auth ──────────────────────────────────────────────────────────────────────
 
 def authenticate_user(username: str, password: str) -> Optional[object]:
-    """Autentica usuário por username/email e senha. Retorna objeto User ou None."""
-    from app.auth.models import User
+    """
+    Autentica usuário por username/email e senha.
+    Retorna dict serializável com dados do usuário ou None.
+
+    [FIX-2] Serializa os dados ANTES de fechar a sessão, evitando
+    DetachedInstanceError com SQLAlchemy 2.x.
+    [FIX-3] bcrypt direto — sem passlib.
+    """
     import bcrypt as _bcrypt
+    from app.auth.models import User
 
     with get_session() as db:
         user = (
@@ -105,33 +129,46 @@ def authenticate_user(username: str, password: str) -> Optional[object]:
             .filter(User.is_active == True)  # noqa: E712
             .first()
         )
-        if user:
-            try:
-                # Usa bcrypt diretamente — evita incompatibilidade passlib 1.7.4 + bcrypt 4.x
-                ok = _bcrypt.checkpw(
-                    password.encode("utf-8"),
-                    user.hashed_password.encode("utf-8"),
-                )
-            except Exception:
-                ok = False
-            if ok:
-                db.expunge(user)
-                return user
-    return None
+        if user is None:
+            return None
+
+        try:
+            ok = _bcrypt.checkpw(
+                password.encode("utf-8"),
+                user.hashed_password.encode("utf-8"),
+            )
+        except Exception:
+            ok = False
+
+        if not ok:
+            return None
+
+        # [FIX-2] Serializar dentro da sessão — objeto nunca sai detached
+        return {
+            "id": str(user.id),
+            "username": user.username,
+            "full_name": user.full_name or user.username,
+            "role": user.role,
+            "email": user.email,
+        }
 
 
 # ─── Projetos ──────────────────────────────────────────────────────────────────
 
 def list_projects() -> list:
     from app.projects.models import Project
+
     with get_session() as db:
         projects = db.query(Project).order_by(Project.updated_at.desc()).all()
         db.expunge_all()
         return projects
 
 
-def create_project(number: str, name: str, engineer: str, description: str = "") -> object:
+def create_project(
+    number: str, name: str, engineer: str, description: str = ""
+) -> object:
     from app.projects.models import Project, ProjectStatus
+
     with get_session() as db:
         p = Project(
             id=uuid.uuid4(),
@@ -150,16 +187,19 @@ def create_project(number: str, name: str, engineer: str, description: str = "")
 
 def delete_project(project_id: uuid.UUID) -> None:
     from app.projects.models import Project
+
     with get_session() as db:
         p = db.get(Project, project_id)
-        if p:
-            db.delete(p)
+        if p is None:
+            return  # [FIX-7] silencioso — idempotente
+        db.delete(p)
 
 
 # ─── Estudos ───────────────────────────────────────────────────────────────────
 
 def list_studies(project_id: uuid.UUID) -> list:
     from app.studies.models import Study
+
     with get_session() as db:
         studies = (
             db.query(Study)
@@ -173,6 +213,7 @@ def list_studies(project_id: uuid.UUID) -> list:
 
 def get_study(study_id: uuid.UUID) -> Optional[object]:
     from app.studies.models import Study
+
     with get_session() as db:
         s = db.get(Study, study_id)
         if s:
@@ -180,20 +221,31 @@ def get_study(study_id: uuid.UUID) -> Optional[object]:
         return s
 
 
-def create_study(project_id: uuid.UUID, name: str, v_base_kv: float = 13.8,
-                 s_base_mva: float = 100.0, frequency_hz: float = 60.0,
-                 voltage_factor_c: float = 1.10, fault_time_s: float = 0.5) -> object:
+def create_study(
+    project_id: uuid.UUID,
+    name: str,
+    study_type: str = "curto_circuito",   # [FIX-6] campo separado do name
+    v_base_kv: float = 13.8,
+    s_base_mva: float = 100.0,
+    frequency_hz: float = 60.0,
+    voltage_factor_c: float = 1.10,
+    fault_time_s: float = 0.5,
+    xr_ratio: float = 10.0,               # [FIX-5] X/R configurável
+) -> object:
     from app.studies.models import Study
+
     with get_session() as db:
         s = Study(
             id=uuid.uuid4(),
             project_id=project_id,
-            study_type=name,
+            name=name,                     # [FIX-6] name separado
+            study_type=study_type,         # [FIX-6] enum/string de tipo
             v_base_kv=v_base_kv,
             s_base_mva=s_base_mva,
             frequency_hz=frequency_hz,
             voltage_factor_c=voltage_factor_c,
             fault_time_s=fault_time_s,
+            xr_ratio=xr_ratio,             # [FIX-5] persistido no modelo
         )
         db.add(s)
         db.flush()
@@ -204,26 +256,31 @@ def create_study(project_id: uuid.UUID, name: str, v_base_kv: float = 13.8,
 
 def update_study_params(study_id: uuid.UUID, **kwargs) -> None:
     from app.studies.models import Study
+
     with get_session() as db:
         s = db.get(Study, study_id)
-        if s:
-            for k, v in kwargs.items():
-                if hasattr(s, k):
-                    setattr(s, k, v)
+        if s is None:
+            return  # [FIX-7] guard explícito
+        for k, v in kwargs.items():
+            if hasattr(s, k):
+                setattr(s, k, v)
 
 
 def delete_study(study_id: uuid.UUID) -> None:
     from app.studies.models import Study
+
     with get_session() as db:
         s = db.get(Study, study_id)
-        if s:
-            db.delete(s)
+        if s is None:
+            return  # [FIX-7] guard explícito
+        db.delete(s)
 
 
 # ─── Elementos de rede ─────────────────────────────────────────────────────────
 
 def list_elements(study_id: uuid.UUID) -> list:
     from app.studies.models import NetworkElement
+
     with get_session() as db:
         elems = (
             db.query(NetworkElement)
@@ -235,35 +292,57 @@ def list_elements(study_id: uuid.UUID) -> list:
         return elems
 
 
-def save_elements(study_id: uuid.UUID, elements: list[dict],
-                  z_r: float = 0.0, z_x: float = 0.0,
-                  scc_mva: float = 0.0) -> None:
-    """Substitui todos os elementos do estudo e atualiza impedância de fonte."""
-    import math
-    from app.studies.models import Study, NetworkElement
-    from sqlalchemy import delete
+def save_elements(
+    study_id: uuid.UUID,
+    elements: list[dict],
+    z_r: float = 0.0,
+    z_x: float = 0.0,
+    scc_mva: float = 0.0,
+    xr_ratio: float = 10.0,  # [FIX-5] X/R configurável — padrão 10 (MT urbana)
+) -> None:
+    """
+    Substitui todos os elementos do estudo e atualiza impedância de fonte.
+
+    xr_ratio: relação X/R da rede no ponto de entrega.
+      - Redes rurais MT (alimentador longo): 3–5
+      - Redes urbanas MT (padrão):           8–12  → usar 10 (default)
+      - Subestações AT 138 kV:               15–25
+      - Subestações AT 230/500 kV:           25–40
+    """
+    from app.studies.models import NetworkElement, Study
 
     with get_session() as db:
         study = db.get(Study, study_id)
 
+        # [FIX-1] Guard explícito — evita AttributeError silencioso
+        if study is None:
+            raise ValueError(
+                f"Estudo '{study_id}' não encontrado no banco. "
+                "Verifique se o estudo foi criado antes de salvar elementos."
+            )
+
         # Atualiza impedância de fonte
-        if scc_mva and scc_mva > 0 and study:
+        if scc_mva and scc_mva > 0:
             v = study.v_base_kv
             zcc = (v ** 2) / scc_mva
-            angle = math.atan(10.0)
+            # [FIX-5] Usa xr_ratio informado, não fixo em 10
+            angle = math.atan(xr_ratio)
             study.z_source_r_ohm = round(zcc * math.cos(angle), 6)
             study.z_source_x_ohm = round(zcc * math.sin(angle), 6)
             study.short_circuit_mva_source = scc_mva
-        elif study:
+            # [FIX-5] Persiste o X/R usado para rastreabilidade
+            if hasattr(study, "xr_ratio"):
+                study.xr_ratio = xr_ratio
+        else:
             if z_r is not None:
                 study.z_source_r_ohm = float(z_r)
             if z_x is not None:
                 study.z_source_x_ohm = float(z_x)
 
-        # Remove e re-insere
+        # Remove e re-insere elementos
         db.execute(delete(NetworkElement).where(NetworkElement.study_id == study_id))
 
-        def _f(v, default=0.0):
+        def _f(v, default: float = 0.0) -> float:
             try:
                 return float(v) if v not in (None, "", "nan") else default
             except (ValueError, TypeError):
@@ -272,15 +351,16 @@ def save_elements(study_id: uuid.UUID, elements: list[dict],
         for i, ed in enumerate(elements):
             if not ed.get("code"):
                 continue
+
             elem = NetworkElement(
                 id=uuid.uuid4(),
                 study_id=study_id,
                 row_order=i,
-                code=str(ed.get("code", f"P{i+1}")),
+                code=str(ed.get("code", f"P{i + 1}")),
                 element_type=str(ed.get("element_type", "linha")),
                 name=str(ed.get("name", "")),
                 bus_from=str(ed.get("bus_from", f"P{i}")),
-                bus_to=str(ed.get("bus_to", f"P{i+1}")),
+                bus_to=str(ed.get("bus_to", f"P{i + 1}")),
                 voltage_kv=_f(ed.get("voltage_kv"), 13.8),
                 length_km=_f(ed.get("length_km")),
                 cable_name=str(ed.get("cable_name", "")),
