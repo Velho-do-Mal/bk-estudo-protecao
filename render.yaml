@@ -16,8 +16,13 @@ services:
       pip install --upgrade pip && \
       pip install -r requirements.txt
 
-    # Comando de start: uvicorn com porta dinâmica do Render
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    # Comando de start: Streamlit com porta dinâmica do Render
+    startCommand: >-
+      streamlit run streamlit_app.py
+      --server.port $PORT
+      --server.address 0.0.0.0
+      --server.headless true
+      --browser.gatherUsageStats false
 
     # Variáveis de ambiente (valores sensíveis definidos no dashboard do Render)
     envVars:
@@ -37,7 +42,8 @@ services:
         value: https://bk-estudo-protecao.onrender.com
 
       # DATABASE_URL e DATABASE_URL_SYNC: definir manualmente no dashboard
-      # com a string de conexão do Neon PostgreSQL (asyncpg e psycopg2)
+      # Formato: postgresql://user:password@host/dbname?sslmode=require
+      # (st_db.py converte automaticamente para pg8000)
       - key: DATABASE_URL
         sync: false           # Não commitar — definir no dashboard
 
