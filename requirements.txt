@@ -1,5 +1,5 @@
 # BK_Estudo_Proteção v2 — Dependências
-# Streamlit Cloud usa Python 3.14 — todos os pacotes sem pin exato para pegar wheels cp314
+# Python 3.12 (alinhado com runtime.txt, .python-version e Dockerfile)
 
 # ─── Streamlit ────────────────────────────────────────────────────────────────
 streamlit>=1.31.0
@@ -11,7 +11,7 @@ python-multipart>=0.0.12
 jinja2>=3.1.4
 
 # ─── Banco de dados ───────────────────────────────────────────────────────────
-sqlalchemy>=2.0.40        # >=2.0.40 tem suporte oficial Python 3.14
+sqlalchemy>=2.0.40
 alembic>=1.14.0
 pg8000>=1.31.0            # PostgreSQL sync — puro Python, zero compilação C
 aiosqlite>=0.20.0         # SQLite async (dev local)
@@ -22,7 +22,7 @@ passlib[bcrypt]>=1.7.4
 bcrypt>=4.2.0
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
-pydantic>=2.10            # >=2.10 usa pydantic-core com PyO3>=0.23 (suporta Python 3.14)
+pydantic>=2.10
 pydantic-settings>=2.7
 python-dotenv>=1.0.1
 
@@ -34,7 +34,7 @@ scipy>=1.11
 # ─── Relatórios ───────────────────────────────────────────────────────────────
 openpyxl>=3.1
 Pillow>=10.0
-# weasyprint — requer libcairo/libpango; não suportado no Streamlit Cloud
+# weasyprint — requer libcairo/libpango; disponível via Dockerfile, não no Streamlit Cloud
 
 # ─── Utilitários ──────────────────────────────────────────────────────────────
 email-validator>=2.2.0
