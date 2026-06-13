@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Dockerfile — BK Estudo de Proteção v2
+# Python 3.12-slim (alinhado com runtime.txt e .python-version)
+FROM python:3.12-slim
 
 # Instala dependências de sistema para WeasyPrint (Cairo, Pango, GDK-Pixbuf)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     shared-mime-info \
     libcairo2 \
     libcairo-gobject2 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/lists/*
 
 WORKDIR /app
 
@@ -20,8 +22,12 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copia código da aplicação
 COPY . .
 
-# Expõe porta (Render injeta $PORT em runtime)
-EXPOSE 8000
+# Expõe porta padrão do Streamlit (Render injeta $PORT em runtime)
+EXPOSE 8501
 
-# Comando de inicialização
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
+# Comando de inicialização — Streamlit (interface principal do usuário)
+CMD streamlit run streamlit_app.py \
+    --server.port ${PORT:-8501} \
+    --server.address 0.0.0.0 \
+    --server.headless true \
+    --browser.gatherUsageStats false
