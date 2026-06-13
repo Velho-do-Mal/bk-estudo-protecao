@@ -18,6 +18,15 @@ def _init_state():
         if k not in st.session_state:
             st.session_state[k] = v
 
+    # Migra banco de dados uma vez por sessão (idempotente)
+    if not st.session_state.get("_db_migrated"):
+        try:
+            from app.database import run_migrations_sync
+            run_migrations_sync()
+        except Exception as _e:
+            st.warning(f"Aviso de migração DB: {_e}")
+        st.session_state["_db_migrated"] = True
+
 
 def inject_css():
     """Injeta CSS global da aplicação."""
