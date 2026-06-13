@@ -36,6 +36,19 @@ class SystemBase:
     z_source_r_ohm: float = 0.0         # Resistência da fonte [Ω]
     z_source_x_ohm: float = 0.0         # Reatância da fonte [Ω]
 
+    # Z2 (sequência negativa) da fonte — 0 = copiar Z1 (Z2≈Z1 em redes de transmissão)
+    z_source_r2_ohm: float = 0.0        # Resistência Z2 da fonte [Ω] (0 = igual Z1)
+    z_source_x2_ohm: float = 0.0        # Reatância Z2 da fonte [Ω]  (0 = igual Z1)
+
+    # Z0 (sequência zero) da fonte — 0 = copiar Z1 (conservador)
+    # Valor real deve ser solicitado ao agente da rede (Scc0 no ponto de entrega)
+    z_source_r0_ohm: float = 0.0        # Resistência Z0 da fonte [Ω] (0 = igual Z1)
+    z_source_x0_ohm: float = 0.0        # Reatância Z0 da fonte [Ω]  (0 = igual Z1)
+
+    # Curva de proteção padrão dos relés (IEC 60255-151)
+    # EI = Extremamente Inversa — curva usual para subestações de MT/AT no Brasil
+    relay_curve_type: str = "EI"
+
     # Regime de neutro (afeta Z0)
     primary_connection: str = "Yg"       # Yg (aterrado), Y, D (delta)
     neutral_regime: str = "aterrado_solido"
