@@ -19,6 +19,17 @@ st.set_page_config(
 inject_css()
 _init_state()
 
+# Migração automática de banco (idempotente, executa uma vez por sessão)
+@st.cache_resource
+def _auto_migrate():
+    try:
+        from app.database import run_migrations_sync
+        run_migrations_sync()
+    except Exception:
+        pass  # nao bloqueia o login se migração falhar
+
+_auto_migrate()
+
 # ── Se já logado, redireciona para projetos ───────────────────────────────────
 if st.session_state.user is not None:
     st.switch_page("pages/1_Projetos.py")
