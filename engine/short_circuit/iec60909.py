@@ -129,6 +129,10 @@ class StudyBase:
     xr_ratio_source: float = 10.0     # X/R da fonte (concessionária)
     z_source_r_ohm: float = 0.0
     z_source_x_ohm: float = 0.0
+    z_source_r2_ohm: float = 0.0
+    z_source_x2_ohm: float = 0.0
+    z_source_r0_ohm: float = 0.0
+    z_source_x0_ohm: float = 0.0
 
 
 # ─── Funções de sequência por tipo de elemento ────────────────────────────────
@@ -337,12 +341,14 @@ def _seq_fonte(study: StudyBase) -> SequenceImpedances:
     Z0 real requer dados específicos do ponto de entrega (solicitar ao agente).
     """
     z1 = complex(study.z_source_r_ohm, study.z_source_x_ohm)
-    z2 = z1  # rede de transmissão: Z2 ≈ Z1
-
-    # Z0 da fonte: sem dados específicos, assume Z0 = Z1 (conservador para MT)
-    # Para AT, Z0_rede pode ser 2–4 × Z1 dependendo do aterramento da rede
-    z0 = z1
-
+    if study.z_source_r2_ohm != 0.0 or study.z_source_x2_ohm != 0.0:
+        z2 = complex(study.z_source_r2_ohm, study.z_source_x2_ohm)
+    else:
+        z2 = z1
+    if study.z_source_r0_ohm != 0.0 or study.z_source_x0_ohm != 0.0:
+        z0 = complex(study.z_source_r0_ohm, study.z_source_x0_ohm)
+    else:
+        z0 = z1
     return SequenceImpedances(z1=z1, z2=z2, z0=z0)
 
 
@@ -524,6 +530,136 @@ def run_short_circuit(
 
 
 # ─── Validação / teste de sanidade ────────────────────────────────────────────
+
+
+# ─── CalculatorResult ─────────────────────────────────────────────────────────
+
+@dataclass
+class CalculatorResult:
+    """Resultado compatível com service.py (sc_results_raw)."""
+    element_code: str
+    bus_name: str
+    z1_ohm: complex
+    z0_ohm: complex
+    icc_3ph_ka: float
+    icc_2ph_ka: float
+    icc_1ph_ka: float
+    icc_2ph_ground_ka: float
+    icc_peak_ka: float
+    kappa_factor: float
+    icc_3ph_lv_ka: float
+    warnings: list = field(default_factory=list)
+    assumptions: list = field(default_factory=list)
+    is_valid: bool = True
+
+
+# ─── IEC60909Calculator ───────────────────────────────────────────────────────
+
+class IEC60909Calculator:
+    """Adapter engine.domain → cálculo IEC 60909 com BFS por barras."""
+
+    def __init__(self, system, elements: list):
+        self.system = system
+        self.elements = [e for e in elements if getattr(e, 'is_active', True)]
+
+    def run(self) -> list:
+        study = self._build_study()
+        c = study.voltage_factor_c
+        z_src = _seq_fonte(study)
+        z_bus: dict = {}
+        bus_to_set = {getattr(e, 'bus_to', '') for e in self.elements if getattr(e, 'bus_to', '')}
+        for e in self.elements:
+            bf = getattr(e, 'bus_from', '')
+            if bf and bf not in bus_to_set:
+                z_bus.setdefault(bf, z_src)
+        if not z_bus and self.elements:
+            z_bus[getattr(self.elements[0], 'bus_from', 'P0') or 'P0'] = z_src
+        results = []
+        done: set = set()
+        for _ in range(len(self.elements) + 2):
+            progressed = False
+            for elem in self.elements:
+                if elem.code in done:
+                    continue
+                bf = getattr(elem, 'bus_from', '') or ''
+                bt = getattr(elem, 'bus_to', '') or elem.code
+                if bf not in z_bus:
+                    continue
+                z_out = _accumulate(z_bus[bf], self._elem_seq(elem))
+                z_bus[bt] = _parallel_z(z_bus[bt], z_out) if bt in z_bus else z_out
+                v = getattr(elem, 'voltage_kv', study.v_base_kv) or study.v_base_kv
+                icc3 = _calc_icc_3f(v, z_out.z1, c)
+                icc2 = _calc_icc_2f(icc3)
+                icc1 = _calc_icc_1f(v, z_out.z1, z_out.z2, z_out.z0, c)
+                ip, kappa, _ = _calc_ip(icc3, z_out.z1)
+                v_sec = getattr(elem, 'trafo_voltage_sec_kv', 0.0) or 0.0
+                icc3_lv = round(icc3 * (v / v_sec), 4) if v_sec > 0 and icc3 > 0 else 0.0
+                results.append(CalculatorResult(
+                    element_code=elem.code, bus_name=bt,
+                    z1_ohm=z_out.z1,
+                    z0_ohm=z_out.z0 if z_out.z0 is not None else complex(0, 0),
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2,
+                    icc_1ph_ka=icc1 if icc1 is not None else 0.0,
+                    icc_2ph_ground_ka=0.0, icc_peak_ka=ip,
+                    kappa_factor=kappa, icc_3ph_lv_ka=icc3_lv, is_valid=True,
+                ))
+                done.add(elem.code)
+                progressed = True
+            if not progressed:
+                for elem in self.elements:
+                    if elem.code not in done:
+                        bf = getattr(elem, 'bus_from', '') or 'P0'
+                        if bf not in z_bus:
+                            z_bus[bf] = z_src
+                break
+        return results
+
+    def _build_study(self) -> StudyBase:
+        s = self.system
+        return StudyBase(
+            v_base_kv=s.v_base_kv, s_base_mva=s.s_base_mva,
+            voltage_factor_c=s.voltage_factor_c, fault_time_s=s.fault_time_s,
+            z_source_r_ohm=s.z_source_r_ohm, z_source_x_ohm=s.z_source_x_ohm,
+            z_source_r2_ohm=getattr(s, 'z_source_r2_ohm', 0.0),
+            z_source_x2_ohm=getattr(s, 'z_source_x2_ohm', 0.0),
+            z_source_r0_ohm=getattr(s, 'z_source_r0_ohm', 0.0),
+            z_source_x0_ohm=getattr(s, 'z_source_x0_ohm', 0.0),
+        )
+
+    def _elem_seq(self, elem) -> SequenceImpedances:
+        et = getattr(elem, 'element_type', 'linha')
+        et_s = et.value if hasattr(et, 'value') else str(et)
+        conn = getattr(elem, 'trafo_connection', 'Yg-Yg')
+        conn_s = conn.value if hasattr(conn, 'value') else str(conn)
+        sv = self.system.v_base_kv
+        eng = NetworkElement(
+            code=getattr(elem, 'code', '?'), element_type=et_s.lower().strip(),
+            voltage_kv=getattr(elem, 'voltage_kv', sv) or sv,
+            length_km=getattr(elem, 'length_km', 0.0) or 0.0,
+            r1_ohm_km=getattr(elem, 'r1_ohm_km', 0.0) or 0.0,
+            x1_ohm_km=getattr(elem, 'x1_ohm_km', 0.0) or 0.0,
+            r0_ohm_km=getattr(elem, 'r0_ohm_km', None) or 0.0,
+            x0_ohm_km=getattr(elem, 'x0_ohm_km', None) or 0.0,
+            trafo_kva=getattr(elem, 'trafo_kva', 0.0) or 0.0,
+            trafo_z_percent=getattr(elem, 'trafo_z_percent', 0.0) or 0.0,
+            trafo_connection=conn_s, trafo_voltage_sec_kv=getattr(elem, 'trafo_voltage_sec_kv', 0.0) or 0.0,
+            trafo_xr_ratio=10.0,
+            gen_s_sub_mva=getattr(elem, 'gen_s_sub_mva', 0.0) or 0.0,
+            gen_xpp_percent=getattr(elem, 'gen_xpp_percent', 0.0) or 0.0,
+            motor_s_mva=getattr(elem, 'motor_s_mva', 0.0) or 0.0,
+            motor_xpp_percent=getattr(elem, 'motor_xpp_percent', 16.7) or 16.7,
+            is_active=True,
+        )
+        t = et_s.lower().strip()
+        if t in ("linha", "linha_aerea", "cabo", "cabo_subterraneo", "alimentador"):
+            return _seq_linha(eng)
+        elif t in ("trafo", "transformador"):
+            return _seq_trafo(eng)
+        elif t in ("gerador", "gerador_sincrono"):
+            return _seq_gerador(eng)
+        elif t in ("motor", "motor_inducao"):
+            return _seq_motor(eng)
+        return SequenceImpedances(z1=0j, z2=0j, z0=0j)
 
 if __name__ == "__main__":
     print("=" * 65)
