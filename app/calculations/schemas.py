@@ -59,6 +59,18 @@ class SystemInput(BaseModel):
     fault_time_s: float = Field(default=0.5, gt=0, le=10)
     z_source_r_ohm: float = Field(default=0.0, ge=0)
     z_source_x_ohm: float = Field(default=0.0, ge=0)
+
+    # Z2 (sequência negativa) — 0 = copiar Z1
+    z_source_r2_ohm: float = Field(default=0.0, ge=0)
+    z_source_x2_ohm: float = Field(default=0.0, ge=0)
+
+    # Z0 (sequência zero) — 0 = copiar Z1
+    z_source_r0_ohm: float = Field(default=0.0, ge=0)
+    z_source_x0_ohm: float = Field(default=0.0, ge=0)
+
+    # Curva de relé padrão do estudo (IEC 60255-151)
+    relay_curve_type: str = "EI"
+
     primary_connection: str = "Yg"
     k_generator: float = Field(default=1.0, gt=0, le=2)
     k_motor: float = Field(default=1.0, gt=0, le=2)
