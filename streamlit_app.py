@@ -20,15 +20,6 @@ inject_css()
 _init_state()
 
 # Migração automática de banco (idempotente, executa uma vez por sessão)
-@st.cache_resource
-def _auto_migrate():
-    from app.database import run_migrations_sync
-    run_migrations_sync()
-
-try:
-    _auto_migrate()
-except Exception as _mig_err:
-    st.warning(f"Aviso: migração do banco falhou — {_mig_err}")
 
 # ── Se já logado, redireciona para projetos ───────────────────────────────────
 if st.session_state.user is not None:
