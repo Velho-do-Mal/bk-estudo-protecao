@@ -5,6 +5,17 @@ NÃO contém código de renderização Streamlit no nível de módulo.
 import streamlit as st
 
 
+@st.cache_resource
+def _run_db_migration_v4():
+    """Migração idempotente executada uma vez por processo Streamlit."""
+    try:
+        from app.database import run_migrations_sync
+        run_migrations_sync()
+        return "ok"
+    except Exception as _e:
+        return f"erro: {_e}"
+
+
 def _init_state():
     """Inicializa variáveis de session_state com valores padrão."""
     defaults = {
@@ -18,14 +29,8 @@ def _init_state():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # Migra banco de dados uma vez por sessão (idempotente)
-    if not st.session_state.get("_db_migrated"):
-        try:
-            from app.database import run_migrations_sync
-            run_migrations_sync()
-        except Exception as _e:
-            st.warning(f"Aviso de migração DB: {_e}")
-        st.session_state["_db_migrated"] = True
+    # Migra banco de dados — cache_resource garante execução única por processo
+    _run_db_migration_v4()
 
 
 def inject_css():
