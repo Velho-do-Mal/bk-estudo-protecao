@@ -95,24 +95,17 @@ async def create_all_tables() -> None:
 
 def run_migrations_sync() -> None:
     """Adiciona colunas novas a tabelas existentes (idempotente).
-    Usa pg8000.dbapi diretamente — ja instalado como dependencia.
+    Usa make_url() do SQLAlchemy para parsear qualquer formato de DATABASE_URL.
     """
     import pg8000.dbapi
-    from urllib.parse import urlparse
-    raw = settings.DATABASE_URL
-    # Remove prefixo de driver: postgresql+asyncpg:// -> postgresql://
-    if "://" in raw:
-        rest = raw.split("://", 1)[1]
-    else:
-        rest = raw
-    parsed = urlparse("postgresql://" + rest)
-    db_name = (parsed.path or "/postgres").lstrip("/").split("?")[0] or "postgres"
+    from sqlalchemy.engine.url import make_url
+    u = make_url(settings.DATABASE_URL)
     conn = pg8000.dbapi.connect(
-        host=parsed.hostname,
-        user=parsed.username,
-        password=parsed.password,
-        database=db_name,
-        port=parsed.port or 5432,
+        host=u.host,
+        user=u.username,
+        password=u.password,
+        database=u.database,
+        port=u.port or 5432,
         ssl_context=True,
     )
     stmts = [
