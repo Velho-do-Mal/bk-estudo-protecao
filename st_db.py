@@ -6,7 +6,7 @@ Correções v2.1:
   - [FIX-1] save_elements: guard explícito para study is None
   - [FIX-2] authenticate_user: expunge após commit (objeto estável)
   - [FIX-3] passlib removido do uso — bcrypt direto
-  - [FIX-4] SSL context com CERT_NONE para compatibilidade Neon/Railway
+  - [FIX-4] SSL com verificação nativa (CERT_NONE removido — risco de segurança)
   - [FIX-5] save_elements: X/R configurável via parâmetro (default 10.0)
   - [FIX-6] create_study: study_type como campo separado do name
   - [FIX-7] delete_project/delete_study: guard para objeto não encontrado
@@ -29,13 +29,19 @@ import app.models_registry  # registra todos os modelos ORM  # noqa: F401
 settings = get_settings()
 
 
-# ─── Conexão ──────────────────────────────────────────────────────────────────
+# ─── Conexão ─────────────────────────────────────────────────────────────────
 
 def _build_db_url(url: str) -> tuple[str, dict]:
     """
     Normaliza URL PostgreSQL para pg8000.
     Remove parâmetros SSL da query string e passa ssl_context via connect_args.
-    [FIX-4] ctx.check_hostname=False / CERT_NONE para compatibilidade Neon.
+
+    [FIX-4 v2.2] Usa ssl.create_default_context() sem modificações:
+      - check_hostname permanece True  (padrão)
+      - verify_mode permanece CERT_REQUIRED  (padrão)
+    Neon e Railway usam certificados assinados por Amazon RDS Root CA,
+    presente no bundle do Python (certifi). Nenhuma configuração extra
+    é necessária — e desabilitar a verificação cria risco de MITM.
     """
     url = url.replace("postgres://", "postgresql://", 1)
     connect_args: dict = {}
@@ -60,12 +66,10 @@ def _build_db_url(url: str) -> tuple[str, dict]:
         url = urlunparse(parsed._replace(query=clean_query))
 
         if ssl_needed:
-            # [FIX-4] Neon/Railway: desabilitar verificação de hostname/cert
-            # para evitar falhas em ambientes sem CA bundle atualizado.
-            # Em produção com CA confiável, remover as duas linhas abaixo.
+            # [FIX-4 v2.2] Contexto SSL padrão — verificação de certificado ATIVA.
+            # Neon/Railway: Amazon RDS Root CA é confiada pelo bundle padrão do Python.
+            # NÃO usar check_hostname=False nem CERT_NONE em produção.
             ctx = _ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = _ssl.CERT_NONE
             connect_args["ssl_context"] = ctx
 
     return url, connect_args
@@ -112,7 +116,7 @@ def get_session():
 
 def authenticate_user(username: str, password: str) -> Optional[object]:
     """
-    Autentica usuário por username/email e senha.
+    Autentica usuário por0or username/email e senha.
     Retorna dict serializável com dados do usuário ou None.
 
     [FIX-2] Serializa os dados ANTES de fechar a sessão, evitando
@@ -155,13 +159,29 @@ def authenticate_user(username: str, password: str) -> Optional[object]:
 
 # ─── Projetos ──────────────────────────────────────────────────────────────────
 
-def list_projects() -> list:
+def list_projects() -> list[dict]:
+    """
+    Retorna lista de projetos como dicts serializáveis.
+    [FIX-2 v2.2] Serialização dentro da sessão — evita acesso a atributos
+    lazy em objetos ORM detached após expunge_all().
+    """
     from app.projects.models import Project
 
     with get_session() as db:
         projects = db.query(Project).order_by(Project.updated_at.desc()).all()
-        db.expunge_all()
-        return projects
+        return [
+            {
+                "id": str(p.id),
+                "project_number": p.project_number,
+                "name": p.name,
+                "responsible_engineer": p.responsible_engineer,
+                "description": p.description,
+                "status": p.status,
+                "created_at": p.created_at,
+                "updated_at": p.updated_at,
+            }
+            for p in projects
+        ]
 
 
 def create_project(
@@ -197,7 +217,11 @@ def delete_project(project_id: uuid.UUID) -> None:
 
 # ─── Estudos ───────────────────────────────────────────────────────────────────
 
-def list_studies(project_id: uuid.UUID) -> list:
+def list_studies(project_id: uuid.UUID) -> list[dict]:
+    """
+    Retorna lista de estudos como dicts serializáveis.
+    [FIX-2 v2.2] Serialização dentro da sessão.
+    """
     from app.studies.models import Study
 
     with get_session() as db:
@@ -207,8 +231,23 @@ def list_studies(project_id: uuid.UUID) -> list:
             .order_by(Study.created_at.desc())
             .all()
         )
-        db.expunge_all()
-        return studies
+        return [
+            {
+                "id": str(s.id),
+                "project_id": str(s.project_id),
+                "name": s.name,
+                "study_type": s.study_type,
+                "v_base_kv": s.v_base_kv,
+                "s_base_mva": s.s_base_mva,
+                "frequency_hz": s.frequency_hz,
+                "voltage_factor_c": s.voltage_factor_c,
+                "fault_time_s": s.fault_time_s,
+                "xr_ratio": s.xr_ratio,
+                "created_at": s.created_at,
+                "updated_at": s.updated_at,
+            }
+            for s in studies
+        ]
 
 
 def get_study(study_id: uuid.UUID) -> Optional[object]:
