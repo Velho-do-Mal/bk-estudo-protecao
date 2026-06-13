@@ -95,15 +95,26 @@ async def create_all_tables() -> None:
 
 def run_migrations_sync() -> None:
     """Adiciona colunas novas a tabelas existentes (idempotente).
-    Chamada no startup do Streamlit para garantir schema atualizado.
+    Usa pg8000.dbapi diretamente — ja instalado como dependencia.
     """
-    import sqlalchemy as _sa
-    sync_url = (
-        settings.DATABASE_URL
-        .replace("+asyncpg", "+pg8000")
-        .replace("+aiosqlite", "")
+    import pg8000.dbapi
+    from urllib.parse import urlparse
+    raw = settings.DATABASE_URL
+    # Remove prefixo de driver: postgresql+asyncpg:// -> postgresql://
+    if "://" in raw:
+        rest = raw.split("://", 1)[1]
+    else:
+        rest = raw
+    parsed = urlparse("postgresql://" + rest)
+    db_name = (parsed.path or "/postgres").lstrip("/").split("?")[0] or "postgres"
+    conn = pg8000.dbapi.connect(
+        host=parsed.hostname,
+        user=parsed.username,
+        password=parsed.password,
+        database=db_name,
+        port=parsed.port or 5432,
+        ssl_context=True,
     )
-    sync_engine = _sa.create_engine(sync_url, echo=False)
     stmts = [
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_r2_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x2_ohm FLOAT DEFAULT 0.0",
@@ -111,7 +122,8 @@ def run_migrations_sync() -> None:
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x0_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS relay_curve_type VARCHAR(20) DEFAULT 'EI'",
     ]
-    with sync_engine.begin() as conn:
-        for stmt in stmts:
-            conn.execute(_sa.text(stmt))
-    sync_engine.dispose()
+    cur = conn.cursor()
+    for stmt in stmts:
+        cur.execute(stmt)
+    conn.commit()
+    conn.close()
