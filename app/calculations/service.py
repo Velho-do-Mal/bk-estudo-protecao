@@ -150,8 +150,10 @@ class CalculationService:
         relay_errors: list[str] = []
         if request.calculate_protection_settings:
             try:
+                relay_curve_type = getattr(request.system, 'relay_curve_type', 'EI')
                 relay_results, relay_errors = _suggest_all_relay_settings(
-                    active_elements, sc_results_raw
+                    active_elements, sc_results_raw,
+                    relay_curve_type=relay_curve_type,
                 )
                 global_warnings.extend(relay_errors)
                 if not relay_results and not relay_errors:
@@ -244,6 +246,11 @@ def _build_system_base(s) -> SystemBase:
         fault_time_s=s.fault_time_s,
         z_source_r_ohm=s.z_source_r_ohm,
         z_source_x_ohm=s.z_source_x_ohm,
+        z_source_r2_ohm=getattr(s, 'z_source_r2_ohm', 0.0),
+        z_source_x2_ohm=getattr(s, 'z_source_x2_ohm', 0.0),
+        z_source_r0_ohm=getattr(s, 'z_source_r0_ohm', 0.0),
+        z_source_x0_ohm=getattr(s, 'z_source_x0_ohm', 0.0),
+        relay_curve_type=getattr(s, 'relay_curve_type', 'EI'),
         primary_connection=s.primary_connection,
         k_generator=s.k_generator,
         k_motor=s.k_motor,
@@ -339,7 +346,7 @@ def _ct_primary_for_load(i_load_a: float) -> float:
 
 
 def _suggest_all_relay_settings(
-    active_elements, sc_results_raw
+    active_elements, sc_results_raw, relay_curve_type: str = "EI"
 ) -> tuple[list[RelaySettingOutput], list[str]]:
     """
     Gera sugestões de relés para elementos com corrente de curto calculada.
@@ -407,7 +414,7 @@ def _suggest_all_relay_settings(
                 rs51 = suggest_relay_settings(
                     element_code=elem.code, ansi_function="51",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
-                    i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
+                    i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type=relay_curve_type,
                 )
                 relay_results.append(_make_relay_output(rs51, icc3))
 
