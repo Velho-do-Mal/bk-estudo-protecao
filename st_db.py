@@ -116,7 +116,7 @@ def get_session():
 
 def authenticate_user(username: str, password: str) -> Optional[object]:
     """
-    Autentica usuário por0or username/email e senha.
+    Autentica usuário por username/email e senha.
     Retorna dict serializável com dados do usuário ou None.
 
     [FIX-2] Serializa os dados ANTES de fechar a sessão, evitando
@@ -159,29 +159,19 @@ def authenticate_user(username: str, password: str) -> Optional[object]:
 
 # ─── Projetos ──────────────────────────────────────────────────────────────────
 
-def list_projects() -> list[dict]:
+def list_projects() -> list:
     """
-    Retorna lista de projetos como dicts serializáveis.
-    [FIX-2 v2.2] Serialização dentro da sessão — evita acesso a atributos
-    lazy em objetos ORM detached após expunge_all().
+    Retorna lista de projetos como objetos ORM expunged.
+    [FIX-2 v2.3] expunge_all() ANTES do commit — atributos escalares já
+    carregados permanecem acessíveis sem DetachedInstanceError.
+    (Apenas relacionamentos lazy causariam erro; as páginas só acessam escalares.)
     """
     from app.projects.models import Project
 
     with get_session() as db:
         projects = db.query(Project).order_by(Project.updated_at.desc()).all()
-        return [
-            {
-                "id": str(p.id),
-                "project_number": p.project_number,
-                "name": p.name,
-                "responsible_engineer": p.responsible_engineer,
-                "description": p.description,
-                "status": p.status,
-                "created_at": p.created_at,
-                "updated_at": p.updated_at,
-            }
-            for p in projects
-        ]
+        db.expunge_all()  # Expunge antes do commit → objetos não são expirados
+        return projects
 
 
 def create_project(
@@ -217,10 +207,10 @@ def delete_project(project_id: uuid.UUID) -> None:
 
 # ─── Estudos ───────────────────────────────────────────────────────────────────
 
-def list_studies(project_id: uuid.UUID) -> list[dict]:
+def list_studies(project_id: uuid.UUID) -> list:
     """
-    Retorna lista de estudos como dicts serializáveis.
-    [FIX-2 v2.2] Serialização dentro da sessão.
+    Retorna lista de estudos como objetos ORM expunged.
+    [FIX-2 v2.3] expunge_all() ANTES do commit — consistente com list_projects().
     """
     from app.studies.models import Study
 
@@ -231,23 +221,8 @@ def list_studies(project_id: uuid.UUID) -> list[dict]:
             .order_by(Study.created_at.desc())
             .all()
         )
-        return [
-            {
-                "id": str(s.id),
-                "project_id": str(s.project_id),
-                "name": s.name,
-                "study_type": s.study_type,
-                "v_base_kv": s.v_base_kv,
-                "s_base_mva": s.s_base_mva,
-                "frequency_hz": s.frequency_hz,
-                "voltage_factor_c": s.voltage_factor_c,
-                "fault_time_s": s.fault_time_s,
-                "xr_ratio": s.xr_ratio,
-                "created_at": s.created_at,
-                "updated_at": s.updated_at,
-            }
-            for s in studies
-        ]
+        db.expunge_all()
+        return studies
 
 
 def get_study(study_id: uuid.UUID) -> Optional[object]:
@@ -337,7 +312,7 @@ def save_elements(
     z_r: float = 0.0,
     z_x: float = 0.0,
     scc_mva: float = 0.0,
-    xr_ratio: float = 10.0,  # [FIX-5] X/R configurável — padrão 10 (MT urbana)
+    xr_ratio: float = 10.0,  # [FIX-5] X/R configurável → padrão 10 (MT urbana)
 ) -> None:
     """
     Substitui todos os elementos do estudo e atualiza impedância de fonte.
