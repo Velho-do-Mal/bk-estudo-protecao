@@ -71,14 +71,42 @@ with st.expander("🔌 Fonte / Concessionária — Impedância do Ponto de Entre
         "Informe a Scc da concessionária (o software calcula R e X automaticamente com X/R = 10) "
         "**ou** informe R e X diretamente."
     )
+    # ── Seletor de curva de relé (IEC 60255-151) ──────────────────────────────
+    CURVE_OPTIONS = {
+        "EI":      "IEC Extremamente Inversa (EI) — padrão SE ✓",
+        "VI":      "IEC Muito Inversa (VI)",
+        "NI":      "IEC Normal Inversa / IDMT (NI)",
+        "LI":      "IEC Longa Inversa (LI)",
+        "IEEE_EI": "IEEE Extremamente Inversa",
+        "CO8":     "IEEE CO8",
+    }
+    _saved_curve = getattr(study, 'relay_curve_type', None) or "EI"
+    _curve_keys  = list(CURVE_OPTIONS.keys())
+    _curve_idx   = _curve_keys.index(_saved_curve) if _saved_curve in _curve_keys else 0
+    relay_curve = st.selectbox(
+        "Curva dos relés (IEC 60255-151)",
+        options=_curve_keys,
+        format_func=lambda k: CURVE_OPTIONS[k],
+        index=_curve_idx,
+        key="relay_curve",
+        help="EI (Extremamente Inversa) é o padrão para subestações MT/AT no Brasil.",
+    )
+
+    # ── Impedância da fonte — sequências Z1, Z2, Z0 ────────────────────────────
+    st.markdown("##### Impedância da fonte")
+    st.caption(
+        "**Z1 (seq. positiva):** calculada a partir de Scc ou informada manualmente.  \n"
+        "**Z2 e Z0:** deixe em 0 para usar Z1 (conservador). Solicite ao agente da rede os valores reais."
+    )
+
     fc1, fc2, fc3, fc4, fc5 = st.columns(5)
     scc_mva = fc1.number_input(
         "Scc concessionária (MVA)", value=float(study.short_circuit_mva_source or 0.0),
         min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
-        help="Potência de curto-circuito da rede da concessionária. Deixe 0 para informar R/X manualmente."
+        help="Potência de curto-circuito da rede. Deixe 0 para informar R/X manualmente."
     )
 
-    # Auto-calcula Z a partir de Scc
+    # Auto-calcula Z1 a partir de Scc (X/R=10)
     if scc_mva > 0:
         v = study.v_base_kv
         zcc = (v ** 2) / scc_mva
@@ -89,13 +117,32 @@ with st.expander("🔌 Fonte / Concessionária — Impedância do Ponto de Entre
         z_r_calc = float(study.z_source_r_ohm or 0.0)
         z_x_calc = float(study.z_source_x_ohm or 0.0)
 
-    z_r = fc2.number_input("R_fonte (Ω)", value=z_r_calc, format="%.6f", key="z_r",
-                           disabled=(scc_mva > 0))
-    z_x = fc3.number_input("X_fonte (Ω)", value=z_x_calc, format="%.6f", key="z_x",
-                           disabled=(scc_mva > 0))
+    z_r = fc2.number_input("R₁_fonte (Ω)", value=z_r_calc, format="%.6f", key="z_r",
+                           disabled=(scc_mva > 0), help="Resistência Z1 da fonte [Ω]")
+    z_x = fc3.number_input("X₁_fonte (Ω)", value=z_x_calc, format="%.6f", key="z_x",
+                           disabled=(scc_mva > 0), help="Reatância Z1 da fonte [Ω]")
     z_mag = math.sqrt(z_r**2 + z_x**2)
-    fc4.metric("|Z_fonte| (Ω)", f"{z_mag:.6f}")
+    fc4.metric("|Z₁_fonte| (Ω)", f"{z_mag:.6f}")
     fc5.number_input("V_base (kV)", value=float(study.v_base_kv), disabled=True, key="v_base_disp")
+
+    # ── Z2 e Z0 da fonte ──────────────────────────────────────────────────────
+    col_z2r, col_z2x, col_z0r, col_z0x = st.columns(4)
+    _z2r = float(getattr(study, 'z_source_r2_ohm', None) or 0.0)
+    _z2x = float(getattr(study, 'z_source_x2_ohm', None) or 0.0)
+    _z0r = float(getattr(study, 'z_source_r0_ohm', None) or 0.0)
+    _z0x = float(getattr(study, 'z_source_x0_ohm', None) or 0.0)
+    z_r2 = col_z2r.number_input("R₂_fonte (Ω)", value=_z2r, format="%.6f", key="z_r2",
+                                 help="Resistência Z2 (seq. negativa). 0 = igual Z1.")
+    z_x2 = col_z2x.number_input("X₂_fonte (Ω)", value=_z2x, format="%.6f", key="z_x2",
+                                 help="Reatância Z2 (seq. negativa). 0 = igual Z1.")
+    z_r0 = col_z0r.number_input("R₀_fonte (Ω)", value=_z0r, format="%.6f", key="z_r0",
+                                 help="Resistência Z0 (seq. zero). 0 = igual Z1.")
+    z_x0 = col_z0x.number_input("X₀_fonte (Ω)", value=_z0x, format="%.6f", key="z_x0",
+                                 help="Reatância Z0 (seq. zero). 0 = igual Z1.")
+    if z_r2 == 0.0 and z_x2 == 0.0:
+        st.caption("ℹ️ Z2 não informado — será usado Z2 = Z1.")
+    if z_r0 == 0.0 and z_x0 == 0.0:
+        st.caption("ℹ️ Z0 não informado — será usado Z0 = Z1 (conservador).")
 
 # ─── Topologia série vs paralelo ──────────────────────────────────────────────
 with st.expander("ℹ️ Como funciona a topologia (série / paralelo)", expanded=False):
@@ -305,6 +352,11 @@ if calc_clicked or st.session_state.get("_recalc"):
             fault_time_s=float(study.fault_time_s),
             z_source_r_ohm=float(z_r),
             z_source_x_ohm=float(z_x),
+            z_source_r2_ohm=float(z_r2),
+            z_source_x2_ohm=float(z_x2),
+            z_source_r0_ohm=float(z_r0),
+            z_source_x0_ohm=float(z_x0),
+            relay_curve_type=relay_curve,
             voltage_factor_c=float(study.voltage_factor_c),
             conductor_temp_c=float(study.conductor_temp_c),
         )
