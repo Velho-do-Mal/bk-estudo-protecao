@@ -70,6 +70,18 @@ class Study(Base):
     # Impedância da fonte (concessionária / equivalente Thévenin)
     z_source_r_ohm: Mapped[float] = mapped_column(Float, default=0.0)
     z_source_x_ohm: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Z2 (sequência negativa) e Z0 (sequência zero) da fonte
+    # 0.0 = usar mesmo valor de Z1 (default conservador)
+    z_source_r2_ohm: Mapped[float] = mapped_column(Float, default=0.0)
+    z_source_x2_ohm: Mapped[float] = mapped_column(Float, default=0.0)
+    z_source_r0_ohm: Mapped[float] = mapped_column(Float, default=0.0)
+    z_source_x0_ohm: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Curva de relé do estudo (IEC 60255-151)
+    # EI = Extremamente Inversa — padrão para subestações MT/AT no Brasil
+    relay_curve_type: Mapped[str] = mapped_column(String(20), default="EI")
+
     z_source_origin: Mapped[DataOrigin] = mapped_column(
         SAEnum(DataOrigin, name="data_origin"), default=DataOrigin.informado
     )
