@@ -91,3 +91,27 @@ async def create_all_tables() -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+def run_migrations_sync() -> None:
+    """Adiciona colunas novas a tabelas existentes (idempotente).
+    Chamada no startup do Streamlit para garantir schema atualizado.
+    """
+    import sqlalchemy as _sa
+    sync_url = (
+        settings.DATABASE_URL
+        .replace("+asyncpg", "+pg8000")
+        .replace("+aiosqlite", "")
+    )
+    sync_engine = _sa.create_engine(sync_url, echo=False)
+    stmts = [
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_r2_ohm FLOAT DEFAULT 0.0",
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x2_ohm FLOAT DEFAULT 0.0",
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_r0_ohm FLOAT DEFAULT 0.0",
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x0_ohm FLOAT DEFAULT 0.0",
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS relay_curve_type VARCHAR(20) DEFAULT 'EI'",
+    ]
+    with sync_engine.begin() as conn:
+        for stmt in stmts:
+            conn.execute(_sa.text(stmt))
+    sync_engine.dispose()
