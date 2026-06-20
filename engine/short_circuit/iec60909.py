@@ -100,6 +100,7 @@ class NetworkElement:
     # Transformador
     trafo_kva: float = 0.0
     trafo_z_percent: float = 0.0
+    trafo_z0_percent: float = 0.0  # %Z0 real do trafo (0 = usar Z0 ≈ Z1)
     trafo_connection: str = "Yg-Yg"
     trafo_voltage_sec_kv: float = 0.0
     trafo_xr_ratio: float = 10.0      # X/R do trafo (plaqueta ou estimativa)
@@ -209,7 +210,19 @@ def _seq_trafo(elem: NetworkElement) -> SequenceImpedances:
     z1 = complex(r_t, x_t)
     z2 = z1  # Z2 = Z1 para transformadores (IEC 60909 §3.3.2)
 
-    z0 = _z0_trafo(z1, elem.trafo_connection)
+    # Z0 do trafo: depende da ligação (IEC 60909 Tab. 4)
+    # Se %Z0 informado E ligação permite seq. zero → usa %Z0 real
+    conn_norm = elem.trafo_connection.strip().upper().replace(" ", "").replace("_", "").replace("-", "")
+    BLOQUEIA_Z0 = {"YGD", "DYG", "DD", "YD", "DY", "YYG", "YGY", "YY"}
+    if conn_norm in BLOQUEIA_Z0:
+        z0 = None  # Z0 = ∞ — falta monofásica bloqueada
+    elif elem.trafo_z0_percent > 0:
+        # %Z0 informado explicitamente — usa valor real
+        z0_mag = (elem.trafo_z0_percent / 100.0) * z_base
+        z0 = complex(z0_mag * math.cos(angle), z0_mag * math.sin(angle))
+    else:
+        # Fallback: usa _z0_trafo (Z0 ≈ Z1 para Yg-Yg, None para Yg-D etc.)
+        z0 = _z0_trafo(z1, elem.trafo_connection)
     return SequenceImpedances(z1=z1, z2=z2, z0=z0)
 
 
@@ -642,6 +655,7 @@ class IEC60909Calculator:
             x0_ohm_km=getattr(elem, 'x0_ohm_km', None) or 0.0,
             trafo_kva=getattr(elem, 'trafo_kva', 0.0) or 0.0,
             trafo_z_percent=getattr(elem, 'trafo_z_percent', 0.0) or 0.0,
+            trafo_z0_percent=getattr(elem, 'trafo_z0_percent', 0.0) or 0.0,
             trafo_connection=conn_s, trafo_voltage_sec_kv=getattr(elem, 'trafo_voltage_sec_kv', 0.0) or 0.0,
             trafo_xr_ratio=10.0,
             gen_s_sub_mva=getattr(elem, 'gen_s_sub_mva', 0.0) or 0.0,
