@@ -308,7 +308,12 @@ def save_elements(
     z_r: float = 0.0,
     z_x: float = 0.0,
     scc_mva: float = 0.0,
-    xr_ratio: float = 10.0,  # [FIX-5] X/R configurável → padrão 10 (MT urbana)
+    z_r2: float = 0.0,
+    z_x2: float = 0.0,
+    z_r0: float = 0.0,
+    z_x0: float = 0.0,
+    relay_curve: str = "EI",
+    xr_ratio: float = 10.0,
 ) -> None:
     """
     Substitui todos os elementos do estudo e atualiza impedância de fonte.
@@ -349,6 +354,14 @@ def save_elements(
             if z_x is not None:
                 study.z_source_x_ohm = float(z_x)
 
+        # Z2, Z0 da fonte e curva de relé — sempre salvos
+        study.z_source_r2_ohm = float(z_r2)
+        study.z_source_x2_ohm = float(z_x2)
+        study.z_source_r0_ohm = float(z_r0)
+        study.z_source_x0_ohm = float(z_x0)
+        if hasattr(study, "relay_curve_type"):
+            study.relay_curve_type = relay_curve
+
         # Remove e re-insere elementos
         db.execute(delete(NetworkElement).where(NetworkElement.study_id == study_id))
 
@@ -380,6 +393,7 @@ def save_elements(
                 x0_ohm_km=_f(ed.get("x0_ohm_km")) or None,
                 trafo_kva=_f(ed.get("trafo_kva")),
                 trafo_z_percent=_f(ed.get("trafo_z_percent")),
+                trafo_z0_percent=_f(ed.get("trafo_z0_percent")) or None,
                 trafo_connection=str(ed.get("trafo_connection", "Yg-Yg")),
                 trafo_voltage_sec_kv=_f(ed.get("trafo_voltage_sec_kv")),
                 gen_s_sub_mva=_f(ed.get("gen_s_sub_mva")),
