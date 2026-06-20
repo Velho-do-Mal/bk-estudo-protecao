@@ -234,7 +234,7 @@ col_config = {
     "bus_to": st.column_config.TextColumn("Para (barra)", width="small",
                                            help="Barra de destino. Use o código do elemento."),
     "V(kV)": st.column_config.NumberColumn("V(kV)", format="%.1f", width="small"),
-    "L(km)": st.column_config.NumberColumn("L(km)", format="%.3f", width="small"),
+    "L(km)": st.column_config.NumberColumn("L(km)", format="%.3f", min_value=0.0, step=0.001, width="small"),
     "R1(Ω/km)": st.column_config.NumberColumn("R1(Ω/km)", format="%.4f", width="small"),
     "X1(Ω/km)": st.column_config.NumberColumn("X1(Ω/km)", format="%.4f", width="small"),
     "R0(Ω/km)": st.column_config.NumberColumn("R0(Ω/km)", format="%.4f", width="small",
