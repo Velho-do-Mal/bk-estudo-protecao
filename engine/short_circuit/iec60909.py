@@ -393,6 +393,35 @@ def _accumulate(
     return SequenceImpedances(z1=z1_new, z2=z2_new, z0=z0_new)
 
 
+def _parallel_z(
+    z1: SequenceImpedances,
+    z2: SequenceImpedances,
+) -> SequenceImpedances:
+    """
+    Impedância equivalente de dois caminhos em paralelo (redes malhadas).
+    Usado no BFS quando dois ramos chegam à mesma barra.
+    """
+    def _par(a: complex, b: complex) -> complex:
+        s = a + b
+        if abs(s) < 1e-15:
+            return 0j
+        return (a * b) / s
+
+    if z1.z0 is not None and z2.z0 is not None:
+        z0_par: Optional[complex] = _par(z1.z0, z2.z0)
+    elif z1.z0 is not None:
+        z0_par = z1.z0
+    elif z2.z0 is not None:
+        z0_par = z2.z0
+    else:
+        z0_par = None  # ambos bloqueiam sequência zero
+
+    return SequenceImpedances(
+        z1=_par(z1.z1, z2.z1),
+        z2=_par(z1.z2, z2.z2),
+        z0=z0_par,
+    )
+
 # ─── Cálculo de correntes ─────────────────────────────────────────────────────
 
 def _calc_icc_3f(v_kv: float, z1: complex, c: float) -> float:
@@ -579,14 +608,21 @@ class IEC60909Calculator:
         study = self._build_study()
         c = study.voltage_factor_c
         z_src = _seq_fonte(study)
-        z_bus: dict = {}
+
+        z_bus: dict = {}   # barra → SequenceImpedances (Ω na base daquela barra)
+        v_bus: dict = {}   # barra → tensão nominal [kV]
+
         bus_to_set = {getattr(e, 'bus_to', '') for e in self.elements if getattr(e, 'bus_to', '')}
         for e in self.elements:
             bf = getattr(e, 'bus_from', '')
             if bf and bf not in bus_to_set:
                 z_bus.setdefault(bf, z_src)
+                v_bus.setdefault(bf, study.v_base_kv)
         if not z_bus and self.elements:
-            z_bus[getattr(self.elements[0], 'bus_from', 'P0') or 'P0'] = z_src
+            bf0 = getattr(self.elements[0], 'bus_from', 'P0') or 'P0'
+            z_bus[bf0] = z_src
+            v_bus[bf0] = study.v_base_kv
+
         results = []
         done: set = set()
         for _ in range(len(self.elements) + 2):
@@ -598,19 +634,52 @@ class IEC60909Calculator:
                 bt = getattr(elem, 'bus_to', '') or elem.code
                 if bf not in z_bus:
                     continue
-                z_out = _accumulate(z_bus[bf], self._elem_seq(elem))
-                z_bus[bt] = _parallel_z(z_bus[bt], z_out) if bt in z_bus else z_out
-                v = getattr(elem, 'voltage_kv', study.v_base_kv) or study.v_base_kv
-                icc3 = _calc_icc_3f(v, z_out.z1, c)
-                icc2 = _calc_icc_2f(icc3)
-                icc1 = _calc_icc_1f(v, z_out.z1, z_out.z2, z_out.z0, c)
-                ip, kappa, _ = _calc_ip(icc3, z_out.z1)
+
+                # Tensão na barra de origem
+                v_from = v_bus.get(bf, study.v_base_kv)
+
+                # Tipo do elemento
+                et_s = getattr(elem, 'element_type', 'linha')
+                et_val = et_s.value if hasattr(et_s, 'value') else str(et_s)
+                is_trafo = et_val.lower().strip() in ("trafo", "transformador")
+
+                z_elem = self._elem_seq(elem)
+                z_out_prim = _accumulate(z_bus[bf], z_elem)
+
                 v_sec = getattr(elem, 'trafo_voltage_sec_kv', 0.0) or 0.0
-                icc3_lv = round(icc3 * (v / v_sec), 4) if v_sec > 0 and icc3 > 0 else 0.0
+
+                if is_trafo and v_sec > 0 and v_from > 0:
+                    # Acumula em Ω primários; converte para Ω secundários
+                    # para que elementos downstream usem base correta.
+                    # Z_sec = Z_prim / n²  onde n = V_prim / V_sec
+                    n2 = (v_from / v_sec) ** 2
+                    z_out_sec = SequenceImpedances(
+                        z1=z_out_prim.z1 / n2,
+                        z2=z_out_prim.z2 / n2,
+                        z0=(z_out_prim.z0 / n2) if z_out_prim.z0 is not None else None,
+                    )
+                    z_bus[bt] = _parallel_z(z_bus[bt], z_out_sec) if bt in z_bus else z_out_sec
+                    v_bus[bt] = v_sec
+                    # Corrente de falta calculada no lado AT (primário)
+                    z_for_icc = z_out_prim
+                    v_icc = v_from
+                else:
+                    z_bus[bt] = _parallel_z(z_bus[bt], z_out_prim) if bt in z_bus else z_out_prim
+                    v_bus[bt] = v_from
+                    z_for_icc = z_out_prim
+                    v_icc = v_from
+
+                icc3 = _calc_icc_3f(v_icc, z_for_icc.z1, c)
+                icc2 = _calc_icc_2f(icc3)
+                icc1 = _calc_icc_1f(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, c)
+                ip, kappa, _ = _calc_ip(icc3, z_for_icc.z1)
+                # Icc lado BT = Icc_AT × (V_AT/V_BT) = IEC 60909 eq. trafo
+                icc3_lv = round(icc3 * (v_icc / v_sec), 4) if (is_trafo and v_sec > 0 and icc3 > 0) else 0.0
+
                 results.append(CalculatorResult(
                     element_code=elem.code, bus_name=bt,
-                    z1_ohm=z_out.z1,
-                    z0_ohm=z_out.z0 if z_out.z0 is not None else complex(0, 0),
+                    z1_ohm=z_for_icc.z1,
+                    z0_ohm=z_for_icc.z0 if z_for_icc.z0 is not None else complex(0, 0),
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2,
                     icc_1ph_ka=icc1 if icc1 is not None else 0.0,
                     icc_2ph_ground_ka=0.0, icc_peak_ka=ip,
@@ -624,8 +693,10 @@ class IEC60909Calculator:
                         bf = getattr(elem, 'bus_from', '') or 'P0'
                         if bf not in z_bus:
                             z_bus[bf] = z_src
-                break
+                            v_bus[bf] = study.v_base_kv
+                        break
         return results
+
 
     def _build_study(self) -> StudyBase:
         s = self.system
