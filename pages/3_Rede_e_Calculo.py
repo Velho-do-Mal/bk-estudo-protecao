@@ -281,8 +281,11 @@ if add_row_clicked:
         "L(km)": 0.0,
         "R1(Ω/km)": 0.0,
         "X1(Ω/km)": 0.0,
+        "R0(Ω/km)": 0.0,
+        "X0(Ω/km)": 0.0,
         "Trafo(kVA)": 0.0,
         "%Z_trafo": 0.0,
+        "%Z0_trafo": 0.0,
         "V_sec(kV)": 0.0,
         "notas": "",
     }])
@@ -308,7 +311,10 @@ def _df_to_element_dicts(df: pd.DataFrame) -> list[dict]:
             "x1_ohm_km": float(row["X1(Ω/km)"] or 0),
             "trafo_kva": float(row["Trafo(kVA)"] or 0),
             "trafo_z_percent": float(row["%Z_trafo"] or 0),
+            "trafo_z0_percent": float(row.get("%Z0_trafo") or 0),
             "trafo_voltage_sec_kv": float(row["V_sec(kV)"] or 0),
+            "r0_ohm_km": float(row.get("R0(Ω/km)") or 0),
+            "x0_ohm_km": float(row.get("X0(Ω/km)") or 0),
             "is_active": bool(row["ativo"]),
             "notes": str(row["notas"] or ""),
         })
@@ -322,6 +328,9 @@ if save_clicked:
             study_id, elements_data,
             z_r=float(z_r), z_x=float(z_x),
             scc_mva=float(scc_mva),
+            z_r2=float(z_r2), z_x2=float(z_x2),
+            z_r0=float(z_r0), z_x0=float(z_x0),
+            relay_curve=relay_curve,
         )
         st.success("✅ Elementos salvos com sucesso!")
     except Exception as e:
@@ -347,7 +356,11 @@ if calc_clicked or st.session_state.get("_recalc"):
     else:
         # Salva antes de calcular
         try:
-            save_elements(study_id, elements_data, z_r=float(z_r), z_x=float(z_x), scc_mva=float(scc_mva))
+            save_elements(study_id, elements_data,
+                         z_r=float(z_r), z_x=float(z_x), scc_mva=float(scc_mva),
+                         z_r2=float(z_r2), z_x2=float(z_x2),
+                         z_r0=float(z_r0), z_x0=float(z_x0),
+                         relay_curve=relay_curve)
         except Exception:
             pass
 
@@ -385,9 +398,9 @@ if calc_clicked or st.session_state.get("_recalc"):
                     x1_ohm_km=e["x1_ohm_km"],
                     trafo_kva=e["trafo_kva"],
                     trafo_z_percent=z_pct,
-                    trafo_z0_percent=float(e.get("%Z0_trafo", 0.0)) or None,
-                    r0_ohm_km=float(e.get("R0(Ω/km)", 0.0)) or None,
-                    x0_ohm_km=float(e.get("X0(Ω/km)", 0.0)) or None,
+                    trafo_z0_percent=float(e.get("trafo_z0_percent") or 0) or None,
+                    r0_ohm_km=float(e.get("r0_ohm_km") or 0) or None,
+                    x0_ohm_km=float(e.get("x0_ohm_km") or 0) or None,
                     trafo_connection=e.get("trafo_connection", "Yg-Yg"),
                     trafo_voltage_sec_kv=e["trafo_voltage_sec_kv"],
                     is_active=True,
