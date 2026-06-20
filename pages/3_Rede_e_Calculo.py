@@ -66,83 +66,64 @@ st.caption(
 )
 
 # ─── Painel da Fonte / Concessionária ─────────────────────────────────────────
-with st.expander("🔌 Fonte / Concessionária — Impedância do Ponto de Entrega (P0)", expanded=True):
+CURVE_OPTIONS = {
+    "EI": "IEC Extremamente Inversa (EI) — padrão SE ✓",
+    "VI": "IEC Muito Inversa (VI)",
+    "NI": "IEC Normal Inversa / IDMT (NI)",
+    "LI": "IEC Longa Inversa (LI)",
+    "IEEE_EI": "IEEE Extremamente Inversa",
+    "CO8": "IEEE CO8",
+}
+
+with st.expander("🔌 Fonte / Concessionária — Dados do Ponto de Entrega", expanded=True):
     st.caption(
-        "Informe a Scc da concessionária (o software calcula R e X automaticamente com X/R = 10) "
-        "**ou** informe R e X diretamente."
+        "Informe os dados fornecidos pela concessionária. "
+        "R, X e as impedâncias de sequência são calculados automaticamente."
     )
-    # ── Seletor de curva de relé (IEC 60255-151) ──────────────────────────────
-    CURVE_OPTIONS = {
-        "EI":      "IEC Extremamente Inversa (EI) — padrão SE ✓",
-        "VI":      "IEC Muito Inversa (VI)",
-        "NI":      "IEC Normal Inversa / IDMT (NI)",
-        "LI":      "IEC Longa Inversa (LI)",
-        "IEEE_EI": "IEEE Extremamente Inversa",
-        "CO8":     "IEEE CO8",
-    }
-    _saved_curve = getattr(study, 'relay_curve_type', None) or "EI"
-    _curve_keys  = list(CURVE_OPTIONS.keys())
-    _curve_idx   = _curve_keys.index(_saved_curve) if _saved_curve in _curve_keys else 0
-    relay_curve = st.selectbox(
+    fc1, fc2, fc3 = st.columns(3)
+    scc_mva = fc1.number_input(
+        "Scc concessionária (MVA) \u002a",
+        value=float(study.short_circuit_mva_source or 0.0),
+        min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
+        help="Potência de curto-circuito trifásico no ponto de entrega. Solicite à concessionária."
+    )
+    xr_source = fc2.number_input(
+        "X/R da rede",
+        value=10.0, min_value=1.0, max_value=50.0, step=1.0, format="%.0f",
+        key="xr_source",
+        help="MT urbana típica: 10  ·  AT 138 kV: 15–20  ·  AT 230/500 kV: 25–40"
+    )
+    _saved_curve = getattr(study, "relay_curve_type", None) or "EI"
+    _curve_keys = list(CURVE_OPTIONS.keys())
+    _curve_idx = _curve_keys.index(_saved_curve) if _saved_curve in _curve_keys else 0
+    relay_curve = fc3.selectbox(
         "Curva dos relés (IEC 60255-151)",
         options=_curve_keys,
         format_func=lambda k: CURVE_OPTIONS[k],
         index=_curve_idx,
         key="relay_curve",
-        help="EI (Extremamente Inversa) é o padrão para subestações MT/AT no Brasil.",
     )
 
-    # ── Impedância da fonte — sequências Z1, Z2, Z0 ────────────────────────────
-    st.markdown("##### Impedância da fonte")
-    st.caption(
-        "**Z1 (seq. positiva):** calculada a partir de Scc ou informada manualmente.  \n"
-        "**Z2 e Z0:** deixe em 0 para usar Z1 (conservador). Solicite ao agente da rede os valores reais."
-    )
-
-    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
-    scc_mva = fc1.number_input(
-        "Scc concessionária (MVA)", value=float(study.short_circuit_mva_source or 0.0),
-        min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
-        help="Potência de curto-circuito da rede. Deixe 0 para informar R/X manualmente."
-    )
-
-    # Auto-calcula Z1 a partir de Scc (X/R=10)
     if scc_mva > 0:
-        v = study.v_base_kv
-        zcc = (v ** 2) / scc_mva
-        angle = math.atan(10.0)
-        z_r_calc = round(zcc * math.cos(angle), 6)
-        z_x_calc = round(zcc * math.sin(angle), 6)
+        _v = study.v_base_kv
+        _zcc = (_v ** 2) / scc_mva
+        _angle = math.atan(float(xr_source))
+        z_r = round(_zcc * math.cos(_angle), 6)
+        z_x = round(_zcc * math.sin(_angle), 6)
+        _zmag = math.sqrt(z_r ** 2 + z_x ** 2)
+        st.caption(
+            f"Z₁ calculada: R = {z_r:.6f} Ω  ·  X = {z_x:.6f} Ω  ·  |Z₁| = {_zmag:.4f} Ω  "
+            "(Z₂ = Z₁ · Z₀ = Z₁ — IEC 60909 §4.3, redes de transmissão MT/AT)"
+        )
     else:
-        z_r_calc = float(study.z_source_r_ohm or 0.0)
-        z_x_calc = float(study.z_source_x_ohm or 0.0)
+        z_r = z_x = 0.0
+        st.error(
+            "⚠️ Scc é obrigatório. Solicite à concessionária a potência de curto-circuito "
+            "no ponto de entrega (normalmente em MVA ou como Icc3φ em kA)."
+        )
 
-    z_r = fc2.number_input("R₁_fonte (Ω)", value=z_r_calc, format="%.6f", key="z_r",
-                           disabled=(scc_mva > 0), help="Resistência Z1 da fonte [Ω]")
-    z_x = fc3.number_input("X₁_fonte (Ω)", value=z_x_calc, format="%.6f", key="z_x",
-                           disabled=(scc_mva > 0), help="Reatância Z1 da fonte [Ω]")
-    z_mag = math.sqrt(z_r**2 + z_x**2)
-    fc4.metric("|Z₁_fonte| (Ω)", f"{z_mag:.6f}")
-    fc5.number_input("V_base (kV)", value=float(study.v_base_kv), disabled=True, key="v_base_disp")
-
-    # ── Z2 e Z0 da fonte ──────────────────────────────────────────────────────
-    col_z2r, col_z2x, col_z0r, col_z0x = st.columns(4)
-    _z2r = float(getattr(study, 'z_source_r2_ohm', None) or 0.0)
-    _z2x = float(getattr(study, 'z_source_x2_ohm', None) or 0.0)
-    _z0r = float(getattr(study, 'z_source_r0_ohm', None) or 0.0)
-    _z0x = float(getattr(study, 'z_source_x0_ohm', None) or 0.0)
-    z_r2 = col_z2r.number_input("R₂_fonte (Ω)", value=_z2r, format="%.6f", key="z_r2",
-                                 help="Resistência Z2 (seq. negativa). 0 = igual Z1.")
-    z_x2 = col_z2x.number_input("X₂_fonte (Ω)", value=_z2x, format="%.6f", key="z_x2",
-                                 help="Reatância Z2 (seq. negativa). 0 = igual Z1.")
-    z_r0 = col_z0r.number_input("R₀_fonte (Ω)", value=_z0r, format="%.6f", key="z_r0",
-                                 help="Resistência Z0 (seq. zero). 0 = igual Z1.")
-    z_x0 = col_z0x.number_input("X₀_fonte (Ω)", value=_z0x, format="%.6f", key="z_x0",
-                                 help="Reatância Z0 (seq. zero). 0 = igual Z1.")
-    if z_r2 == 0.0 and z_x2 == 0.0:
-        st.caption("ℹ️ Z2 não informado — será usado Z2 = Z1.")
-    if z_r0 == 0.0 and z_x0 == 0.0:
-        st.caption("ℹ️ Z0 não informado — será usado Z0 = Z1 (conservador).")
+    # Z2 = Z1, Z0 = Z1 — padrão IEC 60909 para redes de transmissão (sem dados específicos)
+    z_r2, z_x2, z_r0, z_x0 = z_r, z_x, z_r, z_x
 
 # ─── Topologia série vs paralelo ──────────────────────────────────────────────
 with st.expander("ℹ️ Como funciona a topologia (série / paralelo)", expanded=False):
