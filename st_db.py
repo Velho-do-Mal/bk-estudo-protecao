@@ -238,13 +238,11 @@ def get_study(study_id: uuid.UUID) -> Optional[object]:
 def create_study(
     project_id: uuid.UUID,
     name: str,
-    study_type: str = "curto_circuito",   # [FIX-6] campo separado do name
     v_base_kv: float = 13.8,
     s_base_mva: float = 100.0,
     frequency_hz: float = 60.0,
     voltage_factor_c: float = 1.10,
     fault_time_s: float = 0.5,
-    xr_ratio: float = 10.0,               # [FIX-5] X/R configurável
 ) -> object:
     from app.studies.models import Study
 
@@ -252,14 +250,12 @@ def create_study(
         s = Study(
             id=uuid.uuid4(),
             project_id=project_id,
-            name=name,                     # [FIX-6] name separado
-            study_type=study_type,         # [FIX-6] enum/string de tipo
+            study_type=name,  # Study não tem coluna 'name'; usa study_type como nome de exibição
             v_base_kv=v_base_kv,
             s_base_mva=s_base_mva,
             frequency_hz=frequency_hz,
             voltage_factor_c=voltage_factor_c,
             fault_time_s=fault_time_s,
-            xr_ratio=xr_ratio,             # [FIX-5] persistido no modelo
         )
         db.add(s)
         db.flush()
