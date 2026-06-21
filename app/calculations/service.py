@@ -199,13 +199,13 @@ class CalculationService:
         # 6. Coordenograma — passa relay_results para plotar as curvas de proteção
         coord_b64 = None
         try:
-                    coord_input = build_coordenograma_from_results(
-            element_results=sc_results_raw,
-            relay_settings=relay_results,
-            project_name="",
-            study_name=system_type_label(system),
-            inrush_results=inrush_results,
-        )
+            coord_input = build_coordenograma_from_results(
+                element_results=sc_results_raw,
+                relay_settings=relay_results,
+                project_name="",
+                study_name=system_type_label(system),
+                inrush_results=inrush_results,
+            )
             coord_b64 = generate_coordenograma(coord_input)
         except Exception as e:
             global_warnings.append(f"Coordenograma não gerado: {e}")
