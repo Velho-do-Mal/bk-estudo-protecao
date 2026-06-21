@@ -75,55 +75,92 @@ CURVE_OPTIONS = {
     "CO8": "IEEE CO8",
 }
 
-with st.expander("ð Fonte / ConcessionÃ¡ria â Dados do Ponto de Entrega", expanded=True):
+with st.expander("Fonte / Concessionaria", expanded=True):
     st.caption(
-        "Informe os dados fornecidos pela concessionÃ¡ria. "
-        "R, X e as impedÃ¢ncias de sequÃªncia sÃ£o calculados automaticamente."
-    )
-    fc1, fc2, fc3 = st.columns(3)
-    scc_mva = fc1.number_input(
-        "Scc concessionÃ¡ria (MVA) \u002a",
-        value=float(study.short_circuit_mva_source or 0.0),
-        min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
-        help="PotÃªncia de curto-circuito trifÃ¡sico no ponto de entrega. Solicite Ã  concessionÃ¡ria."
-    )
-    xr_source = fc2.number_input(
-        "X/R da rede",
-        value=10.0, min_value=1.0, max_value=50.0, step=1.0, format="%.0f",
-        key="xr_source",
-        help="MT urbana tÃ­pica: 10  Â·  AT 138 kV: 15â20  Â·  AT 230/500 kV: 25â40"
+        "A concessionaria pode informar Scc + X/R (mais comum) "
+        "ou as impedancias de sequencia Z1/Z0 diretamente."
     )
     _saved_curve = getattr(study, "relay_curve_type", None) or "EI"
     _curve_keys = list(CURVE_OPTIONS.keys())
     _curve_idx = _curve_keys.index(_saved_curve) if _saved_curve in _curve_keys else 0
-    relay_curve = fc3.selectbox(
-        "Curva dos relÃ©s (IEC 60255-151)",
-        options=_curve_keys,
-        format_func=lambda k: CURVE_OPTIONS[k],
-        index=_curve_idx,
-        key="relay_curve",
+
+    src_c1, src_c2 = st.columns([3, 2])
+    source_mode = src_c1.radio(
+        "Modo de entrada da fonte",
+        ["Scc (MVA) + X/R", "Z1 e Z0 diretos (Ohm)"],
+        horizontal=True, key="source_mode",
+        help="Scc+X/R: dados do boletim padrao. Z1/Z0: impedancias medidas ou calculadas.",
+    )
+    relay_curve = src_c2.selectbox(
+        "Curva dos reles (IEC 60255-151)",
+        options=_curve_keys, format_func=lambda k: CURVE_OPTIONS[k],
+        index=_curve_idx, key="relay_curve",
     )
 
-    if scc_mva > 0:
-        _v = study.v_base_kv
-        _zcc = (_v ** 2) / scc_mva
-        _angle = math.atan(float(xr_source))
-        z_r = round(_zcc * math.cos(_angle), 6)
-        z_x = round(_zcc * math.sin(_angle), 6)
-        _zmag = math.sqrt(z_r ** 2 + z_x ** 2)
-        st.caption(
-            f"Zâ calculada: R = {z_r:.6f} Î©  Â·  X = {z_x:.6f} Î©  Â·  |Zâ| = {_zmag:.4f} Î©  "
-            "(Zâ = Zâ Â· Zâ = Zâ â IEC 60909 Â§4.3, redes de transmissÃ£o MT/AT)"
+    if source_mode == "Scc (MVA) + X/R":
+        fc1, fc2 = st.columns(2)
+        scc_mva = fc1.number_input(
+            "Scc concessionaria (MVA) *",
+            value=float(study.short_circuit_mva_source or 0.0),
+            min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
+            help="Potencia de curto-circuito trifasico no ponto de entrega.",
         )
-    else:
-        z_r = z_x = 0.0
-        st.error(
-            "â ï¸ Scc Ã© obrigatÃ³rio. Solicite Ã  concessionÃ¡ria a potÃªncia de curto-circuito "
-            "no ponto de entrega (normalmente em MVA ou como Icc3Ï em kA)."
+        xr_source = fc2.number_input(
+            "X/R da rede",
+            value=10.0, min_value=1.0, max_value=50.0, step=1.0, format="%.0f",
+            key="xr_source",
+            help="MT urbana tipica: 10 | AT 138 kV: 15-20 | AT 230/500 kV: 25-40",
         )
+        if scc_mva > 0:
+            _v = study.v_base_kv
+            _zcc = (_v ** 2) / scc_mva
+            _angle = math.atan(float(xr_source))
+            z_r = round(_zcc * math.cos(_angle), 6)
+            z_x = round(_zcc * math.sin(_angle), 6)
+            _zmag = math.sqrt(z_r ** 2 + z_x ** 2)
+            st.caption(
+                f"Z1: R={z_r:.6f} Ohm | X={z_x:.6f} Ohm | "
+                f"|Z1|={_zmag:.4f} Ohm | X/R={xr_source:.0f} "
+                "(Z2=Z1, Z0=Z1 — aprox. IEC 60909 para rede MT/AT)"
+            )
+        else:
+            z_r = z_x = 0.0
+            st.error(
+                "Scc e obrigatorio. Solicite a concessionaria a potencia de "
+                "curto-circuito no ponto de entrega (MVA ou Icc3f em kA)."
+            )
+        z_r2, z_x2 = z_r, z_x
+        z_r0, z_x0 = z_r, z_x
 
-    # Z2 = Z1, Z0 = Z1 â padrÃ£o IEC 60909 para redes de transmissÃ£o (sem dados especÃ­ficos)
-    z_r2, z_x2, z_r0, z_x0 = z_r, z_x, z_r, z_x
+    else:  # Z1 e Z0 diretos (Ohm)
+        st.caption(
+            "Informe Z1 (seq. positiva) e Z0 (seq. zero) conforme "
+            "boletim da concessionaria, em Ohm referidos a tensao de entrega."
+        )
+        zc1, zc2, zc3, zc4 = st.columns(4)
+        z_r  = zc1.number_input("R1 (Ohm)", value=0.0, min_value=0.0, step=0.0001, format="%.6f", key="z_r_dir")
+        z_x  = zc2.number_input("X1 (Ohm)", value=0.0, min_value=0.0, step=0.0001, format="%.6f", key="z_x_dir")
+        z_r0 = zc3.number_input("R0 (Ohm)", value=0.0, min_value=0.0, step=0.0001, format="%.6f", key="z_r0_dir")
+        z_x0 = zc4.number_input("X0 (Ohm)", value=0.0, min_value=0.0, step=0.0001, format="%.6f", key="z_x0_dir")
+        z_r2, z_x2 = z_r, z_x
+        scc_mva = 0.0
+        if abs(z_r) > 0 or abs(z_x) > 0:
+            _zmag  = math.sqrt(z_r ** 2 + z_x ** 2)
+            _zmag0 = math.sqrt(z_r0 ** 2 + z_x0 ** 2)
+            _xr = (z_x / z_r) if z_r > 1e-9 else 100.0
+            st.caption(f"|Z1|={_zmag:.4f} Ohm | X/R={_xr:.1f} | |Z0|={_zmag0:.4f} Ohm")
+        else:
+            st.error("Informe ao menos R1 e X1 da impedancia da rede.")
+
+    # Icc na barra de entrada (ponto de conexao com a concessionaria)
+    _z_ent = math.sqrt(z_r**2 + z_x**2) if (z_r > 1e-9 or z_x > 1e-9) else 0.0
+    if _z_ent > 1e-9:
+        _icc3_ent = round((study.voltage_factor_c * study.v_base_kv) / (math.sqrt(3) * _z_ent), 3)
+        _icc2_ent = round((math.sqrt(3) / 2) * _icc3_ent, 3)
+        st.info(
+            f"**Icc na barra de entrada:** "
+            f"Icc3f = {_icc3_ent:.3f} kA | Icc2f = {_icc2_ent:.3f} kA"
+        )
 
 # âââ Topologia sÃ©rie vs paralelo ââââââââââââââââââââââââââââââââââââââââââââââ
 with st.expander("â¹ï¸ Como funciona a topologia (sÃ©rie / paralelo)", expanded=False):
@@ -169,10 +206,10 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
             "bus_to": str(e.bus_to or f"P{i+1}"),
             "V(kV)": float(e.voltage_kv or study.v_base_kv),
             "L(km)": float(e.length_km or 0.0),
-            "R1(Î©/km)": float(e.r1_ohm_km or 0.0),
-            "X1(Î©/km)": float(e.x1_ohm_km or 0.0),
-            "R0(Î©/km)": float(e.r0_ohm_km or 0.0),
-            "X0(Î©/km)": float(e.x0_ohm_km or 0.0),
+            "R1(Ohm/km)": float(e.r1_ohm_km or 0.0),
+            "X1(Ohm/km)": float(e.x1_ohm_km or 0.0),
+            "R0(Ohm/km)": float(e.r0_ohm_km or 0.0),
+            "X0(Ohm/km)": float(e.x0_ohm_km or 0.0),
             "Trafo(kVA)": float(e.trafo_kva or 0.0),
             "%Z_trafo": float(e.trafo_z_percent or 0.0),
             "%Z0_trafo": float(e.trafo_z0_percent or 0.0),
@@ -191,8 +228,8 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
                 "bus_to": f"P{i+1}",
                 "V(kV)": float(study.v_base_kv),
                 "L(km)": 0.0,
-                "R1(Î©/km)": 0.0,
-                "X1(Î©/km)": 0.0,
+                "R1(Ohm/km)": 0.0,
+                "X1(Ohm/km)": 0.0,
                 "Trafo(kVA)": 0.0,
                 "%Z_trafo": 0.0,
                 "V_sec(kV)": 0.0,
@@ -216,11 +253,11 @@ col_config = {
                                            help="Barra de destino. Use o cÃ³digo do elemento."),
     "V(kV)": st.column_config.NumberColumn("V(kV)", format="%.1f", width="small"),
     "L(km)": st.column_config.NumberColumn("L(km)", format="%.3f", min_value=0.0, step=0.001, width="small"),
-    "R1(Î©/km)": st.column_config.NumberColumn("R1(Î©/km)", format="%.4f", width="small"),
-    "X1(Î©/km)": st.column_config.NumberColumn("X1(Î©/km)", format="%.4f", width="small"),
-    "R0(Î©/km)": st.column_config.NumberColumn("R0(Î©/km)", format="%.4f", width="small",
+    "R1(Ohm/km)": st.column_config.NumberColumn("R1(Ohm/km)", format="%.4f", width="small"),
+    "X1(Ohm/km)": st.column_config.NumberColumn("X1(Ohm/km)", format="%.4f", width="small"),
+    "R0(Ohm/km)": st.column_config.NumberColumn("R0(Ohm/km)", format="%.4f", width="small",
                                             help="ResistÃªncia seq. zero Z0 [Î©/km]. 0 = estimativa 3ÃR1."),
-    "X0(Î©/km)": st.column_config.NumberColumn("X0(Î©/km)", format="%.4f", width="small",
+    "X0(Ohm/km)": st.column_config.NumberColumn("X0(Ohm/km)", format="%.4f", width="small",
                                             help="ReatÃ¢ncia seq. zero Z0 [Î©/km]. 0 = estimativa 3ÃX1."),
     "Trafo(kVA)": st.column_config.NumberColumn("Trafo(kVA)", format="%.0f", width="small"),
     "%Z_trafo": st.column_config.NumberColumn("%Z_trafo", format="%.2f", width="small"),
@@ -260,10 +297,10 @@ if add_row_clicked:
         "bus_to": f"P{n+1}",
         "V(kV)": float(study.v_base_kv),
         "L(km)": 0.0,
-        "R1(Î©/km)": 0.0,
-        "X1(Î©/km)": 0.0,
-        "R0(Î©/km)": 0.0,
-        "X0(Î©/km)": 0.0,
+        "R1(Ohm/km)": 0.0,
+        "X1(Ohm/km)": 0.0,
+        "R0(Ohm/km)": 0.0,
+        "X0(Ohm/km)": 0.0,
         "Trafo(kVA)": 0.0,
         "%Z_trafo": 0.0,
         "%Z0_trafo": 0.0,
@@ -288,14 +325,14 @@ def _df_to_element_dicts(df: pd.DataFrame) -> list[dict]:
             "bus_to": str(row["bus_to"]),
             "voltage_kv": float(row["V(kV)"] or study.v_base_kv),
             "length_km": float(row["L(km)"] or 0),
-            "r1_ohm_km": float(row["R1(Î©/km)"] or 0),
-            "x1_ohm_km": float(row["X1(Î©/km)"] or 0),
+            "r1_ohm_km": float(row["R1(Ohm/km)"] or 0),
+            "x1_ohm_km": float(row["X1(Ohm/km)"] or 0),
             "trafo_kva": float(row["Trafo(kVA)"] or 0),
             "trafo_z_percent": float(row["%Z_trafo"] or 0),
             "trafo_z0_percent": float(row.get("%Z0_trafo") or 0),
             "trafo_voltage_sec_kv": float(row["V_sec(kV)"] or 0),
-            "r0_ohm_km": float(row.get("R0(Î©/km)") or 0),
-            "x0_ohm_km": float(row.get("X0(Î©/km)") or 0),
+            "r0_ohm_km": float(row.get("R0(Ohm/km)") or 0),
+            "x0_ohm_km": float(row.get("X0(Ohm/km)") or 0),
             "is_active": bool(row["ativo"]),
             "notes": str(row["notas"] or ""),
         })
@@ -464,13 +501,13 @@ if result:
                 sc_data.append({
                     "CÃ³digo": r.element_code,
                     "Barra": r.bus_to,
-                    "|Z1| acum. (Î©)": round(r.z1_mag_ohm, 4),
-                    "Icc 3Ï (kA)": round(r.icc_3ph_ka, 3),
-                    "Icc 2Ï (kA)": round(r.icc_2ph_ka, 3),
-                    "Icc 1Ï (kA)": round(r.icc_1ph_ka, 3),
+                    "|Z1| (Ohm)": round(r.z1_mag_ohm, 4),
+                    "Icc 3f (kA)": round(r.icc_3ph_ka, 3),
+                    "Icc 2f (kA)": round(r.icc_2ph_ka, 3),
+                    "Icc 1f (kA)": round(r.icc_1ph_ka, 3),
                     "Ip crista (kA)": round(r.icc_peak_ka, 3),
-                    "Îº": round(r.kappa_factor, 3),
-                    "Icc BT 3Ï (kA)": round(r.icc_3ph_lv_ka, 3) if r.icc_3ph_lv_ka else "â",
+                    "kappa": round(r.kappa_factor, 3),
+                    "Icc BT 3f (kA)": round(r.icc_3ph_lv_ka, 3) if r.icc_3ph_lv_ka else "â",
                     "â ï¸": "Sim" if r.warnings else "",
                 })
 
@@ -480,11 +517,11 @@ if result:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Icc 3Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "Icc 2Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "Icc 1Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 3f (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 2f (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 1f (kA)": st.column_config.NumberColumn(format="%.3f"),
                     "Ip crista (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "|Z1| acum. (Î©)": st.column_config.NumberColumn(format="%.4f"),
+                    "|Z1| (Ohm)": st.column_config.NumberColumn(format="%.4f"),
                 }
             )
 
