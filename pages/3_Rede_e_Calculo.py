@@ -113,7 +113,9 @@ with st.expander("Fonte / Concessionaria", expanded=True):
         )
         if scc_mva > 0:
             _v = study.v_base_kv
-            _zcc = (_v ** 2) / scc_mva
+            _c_factor = getattr(study, 'voltage_factor_c', 1.1) or 1.1
+            # IEC 60909: Scc = c * V^2 / Z_source  =>  Z_source = c * V^2 / Scc
+            _zcc = (_c_factor * _v ** 2) / scc_mva
             _angle = math.atan(float(xr_source))
             z_r = round(_zcc * math.cos(_angle), 6)
             z_x = round(_zcc * math.sin(_angle), 6)
