@@ -1,11 +1,11 @@
 """
-pages/3_Rede_e_Calculo.py — Modelagem da rede elétrica e cálculo IEC 60909.
+pages/3_Rede_e_Calculo.py â Modelagem da rede elÃ©trica e cÃ¡lculo IEC 60909.
 
 Fluxo:
-  1. Usuário preenche dados da fonte (concessionária) e parâmetros globais
-  2. Preenche/edita a grade de elementos da rede (linhas, cabos, transformadores…)
+  1. UsuÃ¡rio preenche dados da fonte (concessionÃ¡ria) e parÃ¢metros globais
+  2. Preenche/edita a grade de elementos da rede (linhas, cabos, transformadoresâ¦)
   3. Clica em CALCULAR
-  4. Resultados aparecem abaixo: Icc 3φ / 2φ / 1φ, inrush, relés, dimensionamento
+  4. Resultados aparecem abaixo: Icc 3Ï / 2Ï / 1Ï, inrush, relÃ©s, dimensionamento
 """
 
 from __future__ import annotations
@@ -18,20 +18,20 @@ import pandas as pd
 import streamlit as st
 from st_utils import _init_state, require_login, sidebar_nav
 
-st.set_page_config(page_title="Rede & Cálculo — BK Proteção", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Rede & CÃ¡lculo â BK ProteÃ§Ã£o", page_icon="â¡", layout="wide")
 _init_state()
 
-# ─── Sidebar ──────────────────────────────────────────────────────────────────
+# âââ Sidebar ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 with st.sidebar:
-    st.markdown("### ⚡ BK Estudo Proteção")
+    st.markdown("### â¡ BK Estudo ProteÃ§Ã£o")
     if st.session_state.user:
-        st.markdown(f"👤 **{st.session_state.user['full_name']}**")
+        st.markdown(f"ð¤ **{st.session_state.user['full_name']}**")
     st.divider()
-    if st.button("◀ Estudos", use_container_width=True):
+    if st.button("â Estudos", use_container_width=True):
         st.switch_page("pages/2_Estudos.py")
-    if st.button("📄 Relatório", use_container_width=True):
+    if st.button("ð RelatÃ³rio", use_container_width=True):
         st.switch_page("pages/4_Relatorio.py")
-    if st.button("🚪 Sair", use_container_width=True):
+    if st.button("ðª Sair", use_container_width=True):
         st.session_state.user = None
         st.switch_page("streamlit_app.py")
 
@@ -39,35 +39,35 @@ require_login()
 
 if not st.session_state.current_study_id:
     st.warning("Nenhum estudo selecionado.")
-    if st.button("← Ir para Estudos"):
+    if st.button("â Ir para Estudos"):
         st.switch_page("pages/2_Estudos.py")
     st.stop()
 
 study_id = uuid.UUID(st.session_state.current_study_id)
 
-# ─── Carrega estudo do banco ───────────────────────────────────────────────────
+# âââ Carrega estudo do banco âââââââââââââââââââââââââââââââââââââââââââââââââââ
 try:
     from st_db import get_study, list_elements, save_elements, update_study_params
     study = get_study(study_id)
     if not study:
-        st.error("Estudo não encontrado.")
+        st.error("Estudo nÃ£o encontrado.")
         st.stop()
     db_elements = list_elements(study_id)
 except Exception as e:
     st.error(f"Erro ao carregar estudo: {e}")
     st.stop()
 
-# ─── Header ───────────────────────────────────────────────────────────────────
-st.markdown(f"## ⚡ {study.study_type}")
+# âââ Header âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+st.markdown(f"## â¡ {study.study_type}")
 st.caption(
-    f"Projeto: {st.session_state.current_project_name}  ·  "
-    f"{study.v_base_kv} kV  ·  {study.s_base_mva} MVA  ·  "
-    f"{study.frequency_hz:.0f} Hz  ·  c = {study.voltage_factor_c:.2f}"
+    f"Projeto: {st.session_state.current_project_name}  Â·  "
+    f"{study.v_base_kv} kV  Â·  {study.s_base_mva} MVA  Â·  "
+    f"{study.frequency_hz:.0f} Hz  Â·  c = {study.voltage_factor_c:.2f}"
 )
 
-# ─── Painel da Fonte / Concessionária ─────────────────────────────────────────
+# âââ Painel da Fonte / ConcessionÃ¡ria âââââââââââââââââââââââââââââââââââââââââ
 CURVE_OPTIONS = {
-    "EI": "IEC Extremamente Inversa (EI) — padrão SE ✓",
+    "EI": "IEC Extremamente Inversa (EI) â padrÃ£o SE â",
     "VI": "IEC Muito Inversa (VI)",
     "NI": "IEC Normal Inversa / IDMT (NI)",
     "LI": "IEC Longa Inversa (LI)",
@@ -75,29 +75,29 @@ CURVE_OPTIONS = {
     "CO8": "IEEE CO8",
 }
 
-with st.expander("🔌 Fonte / Concessionária — Dados do Ponto de Entrega", expanded=True):
+with st.expander("ð Fonte / ConcessionÃ¡ria â Dados do Ponto de Entrega", expanded=True):
     st.caption(
-        "Informe os dados fornecidos pela concessionária. "
-        "R, X e as impedâncias de sequência são calculados automaticamente."
+        "Informe os dados fornecidos pela concessionÃ¡ria. "
+        "R, X e as impedÃ¢ncias de sequÃªncia sÃ£o calculados automaticamente."
     )
     fc1, fc2, fc3 = st.columns(3)
     scc_mva = fc1.number_input(
-        "Scc concessionária (MVA) \u002a",
+        "Scc concessionÃ¡ria (MVA) \u002a",
         value=float(study.short_circuit_mva_source or 0.0),
         min_value=0.0, step=50.0, format="%.0f", key="scc_mva",
-        help="Potência de curto-circuito trifásico no ponto de entrega. Solicite à concessionária."
+        help="PotÃªncia de curto-circuito trifÃ¡sico no ponto de entrega. Solicite Ã  concessionÃ¡ria."
     )
     xr_source = fc2.number_input(
         "X/R da rede",
         value=10.0, min_value=1.0, max_value=50.0, step=1.0, format="%.0f",
         key="xr_source",
-        help="MT urbana típica: 10  ·  AT 138 kV: 15–20  ·  AT 230/500 kV: 25–40"
+        help="MT urbana tÃ­pica: 10  Â·  AT 138 kV: 15â20  Â·  AT 230/500 kV: 25â40"
     )
     _saved_curve = getattr(study, "relay_curve_type", None) or "EI"
     _curve_keys = list(CURVE_OPTIONS.keys())
     _curve_idx = _curve_keys.index(_saved_curve) if _saved_curve in _curve_keys else 0
     relay_curve = fc3.selectbox(
-        "Curva dos relés (IEC 60255-151)",
+        "Curva dos relÃ©s (IEC 60255-151)",
         options=_curve_keys,
         format_func=lambda k: CURVE_OPTIONS[k],
         index=_curve_idx,
@@ -112,47 +112,47 @@ with st.expander("🔌 Fonte / Concessionária — Dados do Ponto de Entrega", e
         z_x = round(_zcc * math.sin(_angle), 6)
         _zmag = math.sqrt(z_r ** 2 + z_x ** 2)
         st.caption(
-            f"Z₁ calculada: R = {z_r:.6f} Ω  ·  X = {z_x:.6f} Ω  ·  |Z₁| = {_zmag:.4f} Ω  "
-            "(Z₂ = Z₁ · Z₀ = Z₁ — IEC 60909 §4.3, redes de transmissão MT/AT)"
+            f"Zâ calculada: R = {z_r:.6f} Î©  Â·  X = {z_x:.6f} Î©  Â·  |Zâ| = {_zmag:.4f} Î©  "
+            "(Zâ = Zâ Â· Zâ = Zâ â IEC 60909 Â§4.3, redes de transmissÃ£o MT/AT)"
         )
     else:
         z_r = z_x = 0.0
         st.error(
-            "⚠️ Scc é obrigatório. Solicite à concessionária a potência de curto-circuito "
-            "no ponto de entrega (normalmente em MVA ou como Icc3φ em kA)."
+            "â ï¸ Scc Ã© obrigatÃ³rio. Solicite Ã  concessionÃ¡ria a potÃªncia de curto-circuito "
+            "no ponto de entrega (normalmente em MVA ou como Icc3Ï em kA)."
         )
 
-    # Z2 = Z1, Z0 = Z1 — padrão IEC 60909 para redes de transmissão (sem dados específicos)
+    # Z2 = Z1, Z0 = Z1 â padrÃ£o IEC 60909 para redes de transmissÃ£o (sem dados especÃ­ficos)
     z_r2, z_x2, z_r0, z_x0 = z_r, z_x, z_r, z_x
 
-# ─── Topologia série vs paralelo ──────────────────────────────────────────────
-with st.expander("ℹ️ Como funciona a topologia (série / paralelo)", expanded=False):
+# âââ Topologia sÃ©rie vs paralelo ââââââââââââââââââââââââââââââââââââââââââââââ
+with st.expander("â¹ï¸ Como funciona a topologia (sÃ©rie / paralelo)", expanded=False):
     st.markdown("""
-    **O cálculo é baseado em barras (bus_from → bus_to):**
+    **O cÃ¡lculo Ã© baseado em barras (bus_from â bus_to):**
 
-    | Configuração | bus_from | bus_to | Resultado |
+    | ConfiguraÃ§Ã£o | bus_from | bus_to | Resultado |
     |---|---|---|---|
-    | **Série** (em cascata) | barra do elem. anterior | barra única nova | Impedâncias somadas em série |
-    | **Paralelo** | **mesma** barra de origem | barras diferentes | Alimentados pelo mesmo ponto — paralelos |
+    | **SÃ©rie** (em cascata) | barra do elem. anterior | barra Ãºnica nova | ImpedÃ¢ncias somadas em sÃ©rie |
+    | **Paralelo** | **mesma** barra de origem | barras diferentes | Alimentados pelo mesmo ponto â paralelos |
 
-    **Exemplo — radial simples (série):**
+    **Exemplo â radial simples (sÃ©rie):**
     ```
-    P0 → [TRAFO T1] → QGBT1 → [CABO C1] → Ponto A
-    P0 → [TRAFO T2] → QGBT2 → [CABO C2] → Ponto B
+    P0 â [TRAFO T1] â QGBT1 â [CABO C1] â Ponto A
+    P0 â [TRAFO T2] â QGBT2 â [CABO C2] â Ponto B
     ```
     - T1: bus_from=`P0`, bus_to=`QGBT1`
     - C1: bus_from=`QGBT1`, bus_to=`PTA`
-    - T2: bus_from=`P0`, bus_to=`QGBT2`  ← **paralelo** a T1 (mesmo bus_from)
+    - T2: bus_from=`P0`, bus_to=`QGBT2`  â **paralelo** a T1 (mesmo bus_from)
     - C2: bus_from=`QGBT2`, bus_to=`PTB`
 
-    **Regra prática:** quando T1 e T2 têm o mesmo `bus_from` → são **paralelos**.
-    Quando C1 tem `bus_from = bus_to de T1` → está **em série** após T1.
+    **Regra prÃ¡tica:** quando T1 e T2 tÃªm o mesmo `bus_from` â sÃ£o **paralelos**.
+    Quando C1 tem `bus_from = bus_to de T1` â estÃ¡ **em sÃ©rie** apÃ³s T1.
     """)
 
-# ─── Grade de elementos ────────────────────────────────────────────────────────
-st.markdown("### 🔗 Elementos da Rede")
+# âââ Grade de elementos ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+st.markdown("### ð Elementos da Rede")
 
-# Tipos de elementos disponíveis
+# Tipos de elementos disponÃ­veis
 ELEM_TYPES = ["linha", "cabo", "transformador", "barra", "gerador", "motor",
               "carga", "disjuntor", "seccionadora", "alimentador"]
 
@@ -162,17 +162,17 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
     for i, e in enumerate(elements):
         rows.append({
             "ativo": bool(e.is_active),
-            "código": str(e.code or f"P{i+1}"),
+            "cÃ³digo": str(e.code or f"P{i+1}"),
             "tipo": str(e.element_type.value if hasattr(e.element_type, 'value') else e.element_type),
-            "descrição": str(e.name or ""),
+            "descriÃ§Ã£o": str(e.name or ""),
             "bus_from": str(e.bus_from or f"P{i}"),
             "bus_to": str(e.bus_to or f"P{i+1}"),
             "V(kV)": float(e.voltage_kv or study.v_base_kv),
             "L(km)": float(e.length_km or 0.0),
-            "R1(Ω/km)": float(e.r1_ohm_km or 0.0),
-            "X1(Ω/km)": float(e.x1_ohm_km or 0.0),
-            "R0(Ω/km)": float(e.r0_ohm_km or 0.0),
-            "X0(Ω/km)": float(e.x0_ohm_km or 0.0),
+            "R1(Î©/km)": float(e.r1_ohm_km or 0.0),
+            "X1(Î©/km)": float(e.x1_ohm_km or 0.0),
+            "R0(Î©/km)": float(e.r0_ohm_km or 0.0),
+            "X0(Î©/km)": float(e.x0_ohm_km or 0.0),
             "Trafo(kVA)": float(e.trafo_kva or 0.0),
             "%Z_trafo": float(e.trafo_z_percent or 0.0),
             "%Z0_trafo": float(e.trafo_z0_percent or 0.0),
@@ -180,19 +180,19 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
             "notas": str(e.notes or ""),
         })
     if not rows:
-        # Grade em branco (5 linhas padrão)
+        # Grade em branco (5 linhas padrÃ£o)
         for i in range(5):
             rows.append({
                 "ativo": True,
-                "código": f"P{i+1}",
+                "cÃ³digo": f"P{i+1}",
                 "tipo": "linha",
-                "descrição": "",
+                "descriÃ§Ã£o": "",
                 "bus_from": f"P{i}",
                 "bus_to": f"P{i+1}",
                 "V(kV)": float(study.v_base_kv),
                 "L(km)": 0.0,
-                "R1(Ω/km)": 0.0,
-                "X1(Ω/km)": 0.0,
+                "R1(Î©/km)": 0.0,
+                "X1(Î©/km)": 0.0,
                 "Trafo(kVA)": 0.0,
                 "%Z_trafo": 0.0,
                 "V_sec(kV)": 0.0,
@@ -204,24 +204,24 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
 if "elements_df" not in st.session_state:
     st.session_state.elements_df = _elements_to_df(db_elements)
 
-# Configuração das colunas do data editor
+# ConfiguraÃ§Ã£o das colunas do data editor
 col_config = {
-    "ativo": st.column_config.CheckboxColumn("✓", width="small"),
-    "código": st.column_config.TextColumn("Código", width="small"),
+    "ativo": st.column_config.CheckboxColumn("â", width="small"),
+    "cÃ³digo": st.column_config.TextColumn("CÃ³digo", width="small"),
     "tipo": st.column_config.SelectboxColumn("Tipo", options=ELEM_TYPES, width="medium"),
-    "descrição": st.column_config.TextColumn("Descrição", width="medium"),
+    "descriÃ§Ã£o": st.column_config.TextColumn("DescriÃ§Ã£o", width="medium"),
     "bus_from": st.column_config.TextColumn("De (barra)", width="small",
                                             help="Barra de origem. Mesmo valor = paralelo."),
     "bus_to": st.column_config.TextColumn("Para (barra)", width="small",
-                                           help="Barra de destino. Use o código do elemento."),
+                                           help="Barra de destino. Use o cÃ³digo do elemento."),
     "V(kV)": st.column_config.NumberColumn("V(kV)", format="%.1f", width="small"),
     "L(km)": st.column_config.NumberColumn("L(km)", format="%.3f", min_value=0.0, step=0.001, width="small"),
-    "R1(Ω/km)": st.column_config.NumberColumn("R1(Ω/km)", format="%.4f", width="small"),
-    "X1(Ω/km)": st.column_config.NumberColumn("X1(Ω/km)", format="%.4f", width="small"),
-    "R0(Ω/km)": st.column_config.NumberColumn("R0(Ω/km)", format="%.4f", width="small",
-                                            help="Resistência seq. zero Z0 [Ω/km]. 0 = estimativa 3×R1."),
-    "X0(Ω/km)": st.column_config.NumberColumn("X0(Ω/km)", format="%.4f", width="small",
-                                            help="Reatância seq. zero Z0 [Ω/km]. 0 = estimativa 3×X1."),
+    "R1(Î©/km)": st.column_config.NumberColumn("R1(Î©/km)", format="%.4f", width="small"),
+    "X1(Î©/km)": st.column_config.NumberColumn("X1(Î©/km)", format="%.4f", width="small"),
+    "R0(Î©/km)": st.column_config.NumberColumn("R0(Î©/km)", format="%.4f", width="small",
+                                            help="ResistÃªncia seq. zero Z0 [Î©/km]. 0 = estimativa 3ÃR1."),
+    "X0(Î©/km)": st.column_config.NumberColumn("X0(Î©/km)", format="%.4f", width="small",
+                                            help="ReatÃ¢ncia seq. zero Z0 [Î©/km]. 0 = estimativa 3ÃX1."),
     "Trafo(kVA)": st.column_config.NumberColumn("Trafo(kVA)", format="%.0f", width="small"),
     "%Z_trafo": st.column_config.NumberColumn("%Z_trafo", format="%.2f", width="small"),
     "%Z0_trafo": st.column_config.NumberColumn("%Z0_trafo", format="%.2f", width="small",
@@ -241,29 +241,29 @@ edited_df = st.data_editor(
 
 st.session_state.elements_df = edited_df
 
-# ─── Botões Salvar / Calcular ─────────────────────────────────────────────────
+# âââ BotÃµes Salvar / Calcular âââââââââââââââââââââââââââââââââââââââââââââââââ
 st.markdown("---")
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 3])
 
-save_clicked = btn_col1.button("💾 Salvar", use_container_width=True)
-calc_clicked = btn_col2.button("⚡ CALCULAR", use_container_width=True, type="primary")
-add_row_clicked = btn_col3.button("➕ Linha", use_container_width=True)
+save_clicked = btn_col1.button("ð¾ Salvar", use_container_width=True)
+calc_clicked = btn_col2.button("â¡ CALCULAR", use_container_width=True, type="primary")
+add_row_clicked = btn_col3.button("â Linha", use_container_width=True)
 
 if add_row_clicked:
     n = len(edited_df)
     new_row = pd.DataFrame([{
         "ativo": True,
-        "código": f"P{n+1}",
+        "cÃ³digo": f"P{n+1}",
         "tipo": "linha",
-        "descrição": "",
+        "descriÃ§Ã£o": "",
         "bus_from": f"P{n}",
         "bus_to": f"P{n+1}",
         "V(kV)": float(study.v_base_kv),
         "L(km)": 0.0,
-        "R1(Ω/km)": 0.0,
-        "X1(Ω/km)": 0.0,
-        "R0(Ω/km)": 0.0,
-        "X0(Ω/km)": 0.0,
+        "R1(Î©/km)": 0.0,
+        "X1(Î©/km)": 0.0,
+        "R0(Î©/km)": 0.0,
+        "X0(Î©/km)": 0.0,
         "Trafo(kVA)": 0.0,
         "%Z_trafo": 0.0,
         "%Z0_trafo": 0.0,
@@ -278,24 +278,24 @@ def _df_to_element_dicts(df: pd.DataFrame) -> list[dict]:
     """Converte DataFrame da grade para lista de dicts para salvar/calcular."""
     result = []
     for _, row in df.iterrows():
-        if not row.get("código"):
+        if not row.get("cÃ³digo"):
             continue
         result.append({
-            "code": str(row["código"]),
+            "code": str(row["cÃ³digo"]),
             "element_type": str(row["tipo"]),
-            "name": str(row["descrição"]),
+            "name": str(row["descriÃ§Ã£o"]),
             "bus_from": str(row["bus_from"]),
             "bus_to": str(row["bus_to"]),
             "voltage_kv": float(row["V(kV)"] or study.v_base_kv),
             "length_km": float(row["L(km)"] or 0),
-            "r1_ohm_km": float(row["R1(Ω/km)"] or 0),
-            "x1_ohm_km": float(row["X1(Ω/km)"] or 0),
+            "r1_ohm_km": float(row["R1(Î©/km)"] or 0),
+            "x1_ohm_km": float(row["X1(Î©/km)"] or 0),
             "trafo_kva": float(row["Trafo(kVA)"] or 0),
             "trafo_z_percent": float(row["%Z_trafo"] or 0),
             "trafo_z0_percent": float(row.get("%Z0_trafo") or 0),
             "trafo_voltage_sec_kv": float(row["V_sec(kV)"] or 0),
-            "r0_ohm_km": float(row.get("R0(Ω/km)") or 0),
-            "x0_ohm_km": float(row.get("X0(Ω/km)") or 0),
+            "r0_ohm_km": float(row.get("R0(Î©/km)") or 0),
+            "x0_ohm_km": float(row.get("X0(Î©/km)") or 0),
             "is_active": bool(row["ativo"]),
             "notes": str(row["notas"] or ""),
         })
@@ -313,12 +313,12 @@ if save_clicked:
             z_r0=float(z_r0), z_x0=float(z_x0),
             relay_curve=relay_curve,
         )
-        st.success("✅ Elementos salvos com sucesso!")
+        st.success("â Elementos salvos com sucesso!")
     except Exception as e:
         st.error(f"Erro ao salvar: {e}")
 
 
-# ─── Cálculo IEC 60909 ────────────────────────────────────────────────────────
+# âââ CÃ¡lculo IEC 60909 ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 if calc_clicked or st.session_state.get("_recalc"):
     st.session_state.pop("_recalc", None)
     elements_data = _df_to_element_dicts(edited_df)
@@ -333,7 +333,7 @@ if calc_clicked or st.session_state.get("_recalc"):
     ]
 
     if not active_elements:
-        st.warning("Preencha pelo menos um elemento com comprimento, impedância ou kVA do transformador.")
+        st.warning("Preencha pelo menos um elemento com comprimento, impedÃ¢ncia ou kVA do transformador.")
     else:
         # Salva antes de calcular
         try:
@@ -395,11 +395,11 @@ if calc_clicked or st.session_state.get("_recalc"):
             elements=elem_inputs,
         )
 
-        with st.spinner("Calculando IEC 60909…"):
+        with st.spinner("Calculando IEC 60909â¦"):
             try:
                 from app.calculations.service import CalculationService
 
-                # Serviço não precisa de db para cálculo puro
+                # ServiÃ§o nÃ£o precisa de db para cÃ¡lculo puro
                 class _NoDb:
                     pass
 
@@ -411,7 +411,7 @@ if calc_clicked or st.session_state.get("_recalc"):
                 loop.close()
 
                 st.session_state["last_result"] = result
-                # ── Painel de diagnóstico pós-cálculo ─────────────────────────
+                # ââ Painel de diagnÃ³stico pÃ³s-cÃ¡lculo âââââââââââââââââââââââââ
                 n_sc  = len(result.short_circuit_results)
                 n_rel = len(result.relay_settings)
                 n_ct  = len(result.ct_sizing)
@@ -422,56 +422,56 @@ if calc_clicked or st.session_state.get("_recalc"):
                 from datetime import datetime
                 ts = datetime.now().strftime("%H:%M:%S")
                 st.success(
-                    f"✅ Cálculo concluído às {ts} — "
-                    f"Icc: {n_sc} | Relés: {n_rel} | TCs: {n_ct} | "
+                    f"â CÃ¡lculo concluÃ­do Ã s {ts} â "
+                    f"Icc: {n_sc} | RelÃ©s: {n_rel} | TCs: {n_ct} | "
                     f"TPs: {n_vt} | Disj: {n_br} | "
-                    f"Coord: {'✅' if coord_ok else '❌'} | Avisos: {n_wrn}"
+                    f"Coord: {'â' if coord_ok else 'â'} | Avisos: {n_wrn}"
                 )
                 if result.global_warnings:
-                    with st.expander(f"⚠️ {n_wrn} aviso(s) de cálculo — clique para ver diagnóstico"):
+                    with st.expander(f"â ï¸ {n_wrn} aviso(s) de cÃ¡lculo â clique para ver diagnÃ³stico"):
                         for w in result.global_warnings:
                             st.code(w, language="text")
             except Exception as e:
                 import traceback
-                st.error(f"Erro no cálculo: {e}")
+                st.error(f"Erro no cÃ¡lculo: {e}")
                 st.code(traceback.format_exc(), language="text")
                 st.session_state.pop("last_result", None)  # limpa resultado antigo
                 result = None
 
-# ─── Exibe resultados ─────────────────────────────────────────────────────────
+# âââ Exibe resultados âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 result = st.session_state.get("last_result")
 
 if result:
     st.markdown("---")
-    st.markdown("## 📊 Resultados — IEC 60909:2016")
+    st.markdown("## ð Resultados â IEC 60909:2016")
 
     st.markdown(f"""
     <div style="background:#fff7ed; border-left:4px solid #e07b39; padding:0.6rem 1rem;
                 border-radius:0 6px 6px 0; font-size:0.8rem; margin-bottom:1rem;">
-    ⚠️ <strong>AVISO TÉCNICO:</strong> Resultados calculados pelo método radial IEC 60909:2016 —
-    c = {study.voltage_factor_c:.2f} · f = {study.frequency_hz:.0f} Hz · V_base = {study.v_base_kv} kV.
-    A validação e responsabilidade técnica são do engenheiro habilitado (CREA).
+    â ï¸ <strong>AVISO TÃCNICO:</strong> Resultados calculados pelo mÃ©todo radial IEC 60909:2016 â
+    c = {study.voltage_factor_c:.2f} Â· f = {study.frequency_hz:.0f} Hz Â· V_base = {study.v_base_kv} kV.
+    A validaÃ§Ã£o e responsabilidade tÃ©cnica sÃ£o do engenheiro habilitado (CREA).
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["⚡ Curto-Circuito", "🔄 Inrush", "🛡️ Relés", "⚙️ Dimensionamento"])
+    tab1, tab2, tab3, tab4 = st.tabs(["â¡ Curto-Circuito", "ð Inrush", "ð¡ï¸ RelÃ©s", "âï¸ Dimensionamento"])
 
-    # ── Tab 1: Curto-Circuito ─────────────────────────────────────────────────
+    # ââ Tab 1: Curto-Circuito âââââââââââââââââââââââââââââââââââââââââââââââââ
     with tab1:
         if result.short_circuit_results:
             sc_data = []
             for r in result.short_circuit_results:
                 sc_data.append({
-                    "Código": r.element_code,
+                    "CÃ³digo": r.element_code,
                     "Barra": r.bus_to,
-                    "|Z1| acum. (Ω)": round(r.z1_mag_ohm, 4),
-                    "Icc 3φ (kA)": round(r.icc_3ph_ka, 3),
-                    "Icc 2φ (kA)": round(r.icc_2ph_ka, 3),
-                    "Icc 1φ (kA)": round(r.icc_1ph_ka, 3),
+                    "|Z1| acum. (Î©)": round(r.z1_mag_ohm, 4),
+                    "Icc 3Ï (kA)": round(r.icc_3ph_ka, 3),
+                    "Icc 2Ï (kA)": round(r.icc_2ph_ka, 3),
+                    "Icc 1Ï (kA)": round(r.icc_1ph_ka, 3),
                     "Ip crista (kA)": round(r.icc_peak_ka, 3),
-                    "κ": round(r.kappa_factor, 3),
-                    "Icc BT 3φ (kA)": round(r.icc_3ph_lv_ka, 3) if r.icc_3ph_lv_ka else "—",
-                    "⚠️": "Sim" if r.warnings else "",
+                    "Îº": round(r.kappa_factor, 3),
+                    "Icc BT 3Ï (kA)": round(r.icc_3ph_lv_ka, 3) if r.icc_3ph_lv_ka else "â",
+                    "â ï¸": "Sim" if r.warnings else "",
                 })
 
             sc_df = pd.DataFrame(sc_data)
@@ -480,11 +480,11 @@ if result:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Icc 3φ (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "Icc 2φ (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "Icc 1φ (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 3Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 2Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
+                    "Icc 1Ï (kA)": st.column_config.NumberColumn(format="%.3f"),
                     "Ip crista (kA)": st.column_config.NumberColumn(format="%.3f"),
-                    "|Z1| acum. (Ω)": st.column_config.NumberColumn(format="%.4f"),
+                    "|Z1| acum. (Î©)": st.column_config.NumberColumn(format="%.4f"),
                 }
             )
 
@@ -493,9 +493,9 @@ if result:
                 for w in (r.warnings or []):
                     st.warning(f"**{r.element_code}:** {w}")
         else:
-            st.info("Nenhum resultado de curto-circuito disponível.")
+            st.info("Nenhum resultado de curto-circuito disponÃ­vel.")
 
-    # ── Tab 2: Inrush ─────────────────────────────────────────────────────────
+    # ââ Tab 2: Inrush âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     with tab2:
         if result.inrush_results:
             inrush_data = []
@@ -507,50 +507,50 @@ if result:
                     "k_inrush": round(r.k_inrush, 1),
                     "I_inrush pico (kA)": round(r.i_inrush_peak_ka, 3),
                     "I_inrush rms (kA)": round(r.i_inrush_rms_ka, 3),
-                    "τ (s)": round(r.tau_s, 3),
+                    "Ï (s)": round(r.tau_s, 3),
                     "t_95% (s)": round(r.t_decay_95pct_s, 2),
-                    "2ª harmônica (%)": round(r.harmonic2_pct, 1),
-                    "Pickup mín. 51 (kA)": round(r.min_pickup_51_ka, 3),
+                    "2Âª harmÃ´nica (%)": round(r.harmonic2_pct, 1),
+                    "Pickup mÃ­n. 51 (kA)": round(r.min_pickup_51_ka, 3),
                     "Pickup 87T (kA)": round(r.pickup_87t_min_ka, 3),
                 })
             st.dataframe(pd.DataFrame(inrush_data), use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum transformador com dados de inrush.")
 
-    # ── Tab 3: Relés ─────────────────────────────────────────────────────────
+    # ââ Tab 3: RelÃ©s âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     with tab3:
         if result.relay_settings:
             relay_data = []
             for r in result.relay_settings:
                 relay_data.append({
                     "Elemento": r.element_code,
-                    "Função ANSI": r.ansi_function,
+                    "FunÃ§Ã£o ANSI": r.ansi_function,
                     "Pickup prim. (kA)": round(r.pickup_primary_ka, 3),
                     "Pickup sec. (A)": round(r.pickup_secondary_a, 1),
                     "TMS sugerido": round(r.tms_suggested, 3),
                     "Curva": r.curve_type,
-                    "t @ Icc 3φ (s)": round(r.t_at_icc_3ph_s, 3) if r.t_at_icc_3ph_s else "—",
-                    "t @ Icc 1φ (s)": round(r.t_at_icc_1ph_s, 3) if r.t_at_icc_1ph_s else "—",
-                    "Sensib. OK": "✅" if r.sensitivity_ok else "❌",
+                    "t @ Icc 3Ï (s)": round(r.t_at_icc_3ph_s, 3) if r.t_at_icc_3ph_s else "â",
+                    "t @ Icc 1Ï (s)": round(r.t_at_icc_1ph_s, 3) if r.t_at_icc_1ph_s else "â",
+                    "Sensib. OK": "â" if r.sensitivity_ok else "â",
                     "Ratio sensib.": round(r.sensitivity_ratio, 2),
                 })
             st.dataframe(pd.DataFrame(relay_data), use_container_width=True, hide_index=True)
         else:
-            st.warning("⚠️ Nenhuma sugestão de relé foi gerada.")
-            diag_relays = [w for w in (result.global_warnings or []) if "RELÉ" in w or "DIAGNÓ" in w or "ERRO" in w]
+            st.warning("â ï¸ Nenhuma sugestÃ£o de relÃ© foi gerada.")
+            diag_relays = [w for w in (result.global_warnings or []) if "RELÃ" in w or "DIAGNÃ" in w or "ERRO" in w]
             if diag_relays:
-                st.markdown("**Diagnóstico:**")
+                st.markdown("**DiagnÃ³stico:**")
                 for d in diag_relays:
                     st.code(d, language="text")
             else:
                 st.info(
-                    "Possíveis causas: (1) Todos os elementos têm Icc3φ = 0 "
-                    "— verifique impedância da fonte. "
-                    "(2) Elementos não conectados à barra fonte via BFS. "
+                    "PossÃ­veis causas: (1) Todos os elementos tÃªm Icc3Ï = 0 "
+                    "â verifique impedÃ¢ncia da fonte. "
+                    "(2) Elementos nÃ£o conectados Ã  barra fonte via BFS. "
                     "(3) Clique **CALCULAR** novamente para atualizar."
                 )
 
-    # ── Tab 4: Dimensionamento ────────────────────────────────────────────────
+    # ââ Tab 4: Dimensionamento ââââââââââââââââââââââââââââââââââââââââââââââââ
     with tab4:
         sub_t1, sub_t2, sub_t3 = st.tabs(["TC (Transformadores de Corrente)", "TP", "Disjuntores"])
 
@@ -561,7 +561,7 @@ if result:
                     ct_data.append({
                         "Elemento": r.element_code,
                         "In nominal (A)": round(r.ip_nominal_a, 1),
-                        "Relação TC": r.ip_ratio_string,
+                        "RelaÃ§Ã£o TC": r.ip_ratio_string,
                         "FLA req.": round(r.alf_required, 1),
                         "FLA adotado": r.alf_adopted,
                         "Classe": r.accuracy_class,
@@ -569,12 +569,12 @@ if result:
                         "Sn TC (VA)": round(r.sn_tc_va, 1),
                         "Vk req. (V)": round(r.vk_required_v, 1),
                         "BIL (kV)": r.bil_kv,
-                        "Designação": r.designation_string,
-                        "Sat. OK": "✅" if r.saturation_check_ok else "❌",
+                        "DesignaÃ§Ã£o": r.designation_string,
+                        "Sat. OK": "â" if r.saturation_check_ok else "â",
                     })
                 st.dataframe(pd.DataFrame(ct_data), use_container_width=True, hide_index=True)
             else:
-                st.warning("⚠️ Nenhum TC dimensionado.")
+                st.warning("â ï¸ Nenhum TC dimensionado.")
                 diag_dim = [w for w in (result.global_warnings or []) if "DIM" in w or "TC" in w or "ERRO" in w]
                 if diag_dim:
                     for d in diag_dim:
@@ -586,16 +586,16 @@ if result:
                 for r in result.vt_sizing:
                     vt_data.append({
                         "Elemento": r.element_code,
-                        "Relação TP": r.ratio_string,
+                        "RelaÃ§Ã£o TP": r.ratio_string,
                         "Vp (V)": round(r.vp_v, 1),
                         "Vs (V)": round(r.vs_v, 1),
                         "Classe": r.accuracy_class,
                         "Carga (VA)": round(r.burden_total_va, 1),
                         "Sn TP (VA)": round(r.sn_vt_va, 1),
                         "Fator Ktf": round(r.ktf_value, 2),
-                        "Descrição Ktf": r.ktf_description,
+                        "DescriÃ§Ã£o Ktf": r.ktf_description,
                         "BIL (kV)": r.bil_kv,
-                        "Carga OK": "✅" if r.burden_check_ok else "❌",
+                        "Carga OK": "â" if r.burden_check_ok else "â",
                     })
                 st.dataframe(pd.DataFrame(vt_data), use_container_width=True, hide_index=True)
             else:
@@ -614,9 +614,9 @@ if result:
                         "Icc fecham. (kA)": round(r.making_current_ka, 3),
                         "Ith (kA)": round(r.short_time_current_ka, 3),
                         "t_cc (s)": round(r.short_time_duration_s, 2),
-                        "V OK": "✅" if r.voltage_ok else "❌",
-                        "In OK": "✅" if r.current_ok else "❌",
-                        "Icc OK": "✅" if r.breaking_ok else "❌",
+                        "V OK": "â" if r.voltage_ok else "â",
+                        "In OK": "â" if r.current_ok else "â",
+                        "Icc OK": "â" if r.breaking_ok else "â",
                     })
                 st.dataframe(pd.DataFrame(brk_data), use_container_width=True, hide_index=True)
             else:
@@ -624,14 +624,14 @@ if result:
 
     # Coordenograma
     if result.coordenograma_b64:
-        st.markdown("### 📈 Coordenograma")
+        st.markdown("### ð Coordenograma")
         import base64
         img_bytes = base64.b64decode(result.coordenograma_b64)
         st.image(img_bytes, use_container_width=True)
 
     # Avisos globais
     if result.global_warnings:
-        st.markdown("### ⚠️ Avisos")
+        st.markdown("### â ï¸ Avisos")
         for w in result.global_warnings:
             st.warning(w)
 
@@ -642,3 +642,51 @@ if result:
     {result.disclaimer}
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─── Botão Relatório Técnico Word ────────────────────────────────────────────
+if result:
+    st.markdown("---")
+    if st.button("📄 Gerar Relatório Técnico (Word / IEC 60909)", use_container_width=False):
+        with st.spinner("Gerando relatório Word…"):
+            try:
+                from engine.reports.relatorio_protecao import gerar_relatorio_protecao
+                import datetime as _dt
+                study_info = {
+                    "numero": str(study.id)[:8].upper(),
+                    "projeto": st.session_state.get("current_project_name", "—"),
+                    "revisao": "R0",
+                    "data": _dt.date.today().strftime("%d/%m/%Y"),
+                    "responsavel": (
+                        st.session_state.user.get("full_name", "Engenheiro Responsável")
+                        if st.session_state.user else "—"
+                    ),
+                    "tensao_kv": float(study.v_base_kv),
+                    "s_base_mva": float(study.s_base_mva),
+                    "freq_hz": float(study.frequency_hz),
+                    "c_fator": float(study.voltage_factor_c),
+                }
+                buf = gerar_relatorio_protecao(
+                    study_info=study_info,
+                    system=None,
+                    elements=result.short_circuit_results,
+                    sc_results=result.short_circuit_results,
+                    ct_results=result.ct_sizing,
+                    vt_results=result.vt_sizing,
+                    breaker_results=result.breaker_sizing,
+                    relay_results=result.relay_settings,
+                    coordenograma_b64=result.coordenograma_b64,
+                )
+                fname = f"Relatorio_Protecao_{study_info['numero']}.docx"
+                st.download_button(
+                    label="⬇️ Baixar Relatório .docx",
+                    data=buf.getvalue(),
+                    file_name=fname,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                )
+                st.success("✅ Relatório gerado com sucesso!")
+            except Exception as _e:
+                import traceback as _tb
+                st.error(f"Erro ao gerar relatório: {_e}")
+                st.code(_tb.format_exc(), language="text")
