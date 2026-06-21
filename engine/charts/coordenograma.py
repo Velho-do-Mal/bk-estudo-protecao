@@ -241,6 +241,7 @@ def build_coordenograma_from_results(
     relay_settings: list,
     project_name: str = "",
     study_name: str = "",
+    inrush_results: list = None,
 ) -> CoordenogramaInput:
     """
     Constrói CoordenogramaInput a partir dos resultados de cálculo
@@ -345,6 +346,41 @@ def build_coordenograma_from_results(
     # Range dos eixos
     i_max = max(all_currents_ka, default=100.0) * 1.5
     i_min = min(all_currents_ka, default=0.01) * 0.5
+
+    # Curvas de inrush — zona proibida de atuacao dos reles
+    if inrush_results:
+        for _inr in inrush_results:
+            if not _inr or getattr(_inr, "i_inrush_peak_ka", 0) <= 0:
+                continue
+            _tau = _inr.tau_s if _inr.tau_s > 0 else 0.05
+            _t_max_inr = max(_inr.t_decay_95pct_s * 1.2, 0.5) if _inr.t_decay_95pct_s > 0 else 0.5
+            # Pontos de tempo (geometrico)
+            _t_pts = []
+            _t = 0.005
+            while _t < _t_max_inr:
+                _t_pts.append(_t)
+                _t *= 1.5
+            if not _t_pts:
+                _t_pts = [0.005, 0.01, 0.05, 0.1, 0.5]
+            _i_pts = [_inr.i_inrush_peak_ka * math.exp(-_t / _tau) for _t in _t_pts]
+            all_currents_ka.extend(_i_pts)
+            curves.append(CurveData(
+                label=f"INRUSH {_inr.element_code} ({_inr.trafo_kva:.0f} kVA) "
+                      f"Ip={_inr.i_inrush_peak_ka:.3f} kA",
+                currents_ka=_i_pts,
+                times_s=_t_pts,
+                color="#e74c3c",
+                linestyle="--",
+                linewidth=1.8,
+            ))
+            # Marcador da corrente rms de inrush
+            if _inr.i_inrush_rms_ka > 0:
+                fault_markers.append(FaultMarker(
+                    label=f"Inrush rms {_inr.element_code}={_inr.i_inrush_rms_ka:.3f} kA",
+                    current_ka=_inr.i_inrush_rms_ka,
+                    color="#e74c3c",
+                    linestyle=":",
+                ))
 
     title = "Coordenograma de Proteção"
     if project_name:
