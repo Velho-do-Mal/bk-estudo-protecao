@@ -685,6 +685,25 @@ class IEC60909Calculator:
                     icc_2ph_ground_ka=0.0, icc_peak_ka=ip,
                     kappa_factor=kappa, icc_3ph_lv_ka=icc3_lv, is_valid=True,
                 ))
+                # Resultado explícito no lado BT para transformadores
+                if is_trafo and v_sec > 0 and icc3_lv > 0:
+                    _zbt = z_bus.get(bt)
+                    if _zbt is not None:
+                        _i3bt = _calc_icc_3f(v_sec, _zbt.z1, c)
+                        _i2bt = _calc_icc_2f(_i3bt)
+                        _i1bt = _calc_icc_1f(v_sec, _zbt.z1, _zbt.z2, _zbt.z0, c)
+                        _ipbt, _kbt, _ = _calc_ip(_i3bt, _zbt.z1)
+                        results.append(CalculatorResult(
+                            element_code=elem.code + "_BT",
+                            bus_name=bt + "_BT",
+                            z1_ohm=_zbt.z1,
+                            z0_ohm=_zbt.z0 if _zbt.z0 is not None else complex(0, 0),
+                            icc_3ph_ka=_i3bt, icc_2ph_ka=_i2bt,
+                            icc_1ph_ka=_i1bt if _i1bt is not None else 0.0,
+                            icc_2ph_ground_ka=0.0, icc_peak_ka=_ipbt,
+                            kappa_factor=_kbt, icc_3ph_lv_ka=0.0, is_valid=True,
+                            warnings=[f"Secundario BT ({v_sec:.3f} kV) do trafo {elem.code}"],
+                        ))
                 done.add(elem.code)
                 progressed = True
             if not progressed:
