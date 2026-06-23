@@ -1,617 +1,690 @@
+# -*- coding: utf-8 -*-
 """
-engine/reports/relatorio_protecao.py  — BK Engenharia e Tecnologia
-Gerador de Relatório Técnico de Estudo de Proteção (IEC 60909:2016)
+engine/reports/relatorio_protecao.py
+=====================================
+Gerador de Relatorio Tecnico Word -- Estudo de Protecao de Sistemas Eletricos
+BK Engenharia e Tecnologia -- v3.0
 """
 from __future__ import annotations
-import io, math, base64
-from datetime import datetime
-from typing import Optional, Any
-
+import io, math, datetime
+from typing import Any
 from docx import Document
-from docx.shared import Inches, Pt, Cm, RGBColor
+from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from lxml import etree
 
-try:
-    import matplotlib; matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    _HAS_MPL = True
-except ImportError:
-    _HAS_MPL = False
+_C_AZUL_ESC = "1F3864"
+_C_AZUL_MED = "2E74B5"
+_C_AZUL_LIG = "BDD7EE"
+_C_CINZA    = "404040"
+_C_CINZA2   = "F2F2F2"
+_C_BRANCO   = "FFFFFF"
+_MNS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
-# ── Paleta BK ──────────────────────────────────────────────────────────────
-_BK_BLUE  = RGBColor(0x1F,0x4E,0x79)
-_BK_BLUE2 = RGBColor(0x2E,0x75,0xB6)
-_BK_GRAY  = RGBColor(0x7F,0x7F,0x7F)
-_BK_WHITE = RGBColor(0xFF,0xFF,0xFF)
-_HEX_BLUE  = "1F4E79"; _HEX_BLUE2 = "2E75B6"
-_HEX_LGRAY = "F2F2F2"; _HEX_BGROW = "DEEAF1"; _HEX_WHITE = "FFFFFF"
+def _set_cell_bg(cell, hex_color):
+    tc = cell._tc; tcPr = tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"),"clear"); shd.set(qn("w:color"),"auto"); shd.set(qn("w:fill"),hex_color)
+    tcPr.append(shd)
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
-def _cs(cell, fill):
-    tc=cell._tc; p=tc.get_or_add_tcPr()
-    s=OxmlElement("w:shd"); s.set(qn("w:val"),"clear")
-    s.set(qn("w:color"),"auto"); s.set(qn("w:fill"),fill); p.append(s)
+def _set_cell_border(cell, sides=("top","bottom","left","right"), sz="4", color="CCCCCC"):
+    tc = cell._tc; tcPr = tc.get_or_add_tcPr(); tcBdr = OxmlElement("w:tcBorders")
+    for side in sides:
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:val"),"single"); el.set(qn("w:sz"),sz)
+        el.set(qn("w:space"),"0"); el.set(qn("w:color"),color)
+        tcBdr.append(el)
+    tcPr.append(tcBdr)
 
-def _cb(cell, color="CCCCCC", sz="4"):
-    tc=cell._tc; p=tc.get_or_add_tcPr()
-    bdr=OxmlElement("w:tcBorders")
-    for side in("top","left","bottom","right"):
-        b=OxmlElement(f"w:{side}"); b.set(qn("w:val"),"single")
-        b.set(qn("w:sz"),sz); b.set(qn("w:space"),"0"); b.set(qn("w:color"),color); bdr.append(b)
-    p.append(bdr)
+def _cell_write(cell, text, bold=False, italic=False, size=9, color=_C_CINZA, center=False):
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    p = cell.paragraphs[0]; p.clear()
+    if center: p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(str(text))
+    run.bold = bold; run.italic = italic
+    run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(color)
 
-def _cw(cell, text, bold=False, italic=False, size=9,
-        align=WD_ALIGN_PARAGRAPH.CENTER, color=None):
-    cell.text=""
-    p=cell.paragraphs[0]; p.alignment=align
-    p.paragraph_format.space_before=Pt(2); p.paragraph_format.space_after=Pt(2)
-    r=p.add_run(str(text)); r.bold=bold; r.italic=italic
-    r.font.name="Arial"; r.font.size=Pt(size)
-    if color: r.font.color.rgb=color
-
-def _hline(doc, color=_HEX_BLUE2, sz="6", before=2, after=4):
-    p=doc.add_paragraph()
-    p.paragraph_format.space_before=Pt(before); p.paragraph_format.space_after=Pt(after)
-    pp=p._p.get_or_add_pPr(); pb=OxmlElement("w:pBdr")
-    b=OxmlElement("w:bottom"); b.set(qn("w:val"),"single"); b.set(qn("w:sz"),sz)
-    b.set(qn("w:space"),"1"); b.set(qn("w:color"),color); pb.append(b); pp.append(pb)
+def _hline(doc, color=_C_AZUL_MED, sz="6", before=2, after=4):
+    p = doc.add_paragraph(); pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr"); btm = OxmlElement("w:bottom")
+    btm.set(qn("w:val"),"single"); btm.set(qn("w:sz"),sz)
+    btm.set(qn("w:space"),"1"); btm.set(qn("w:color"),color)
+    pBdr.append(btm); pPr.append(pBdr)
+    p.paragraph_format.space_before = Pt(before); p.paragraph_format.space_after = Pt(after)
 
 def _sp(doc, pts=4):
-    p=doc.add_paragraph()
-    p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(pts)
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(pts)
 
-def _h1(doc, text):
-    p=doc.add_paragraph()
-    p.paragraph_format.space_before=Pt(14); p.paragraph_format.space_after=Pt(4)
-    r=p.add_run(text); r.font.name="Arial"; r.font.size=Pt(13)
-    r.bold=True; r.font.color.rgb=_BK_BLUE
-    pp=p._p.get_or_add_pPr(); pb=OxmlElement("w:pBdr")
-    b=OxmlElement("w:bottom"); b.set(qn("w:val"),"single"); b.set(qn("w:sz"),"6")
-    b.set(qn("w:space"),"1"); b.set(qn("w:color"),_HEX_BLUE); pb.append(b); pp.append(pb)
+def _h1(doc, numero, texto):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(14); p.paragraph_format.space_after = Pt(4)
+    run = p.add_run(f"{numero}  {texto.upper()}")
+    run.bold = True; run.font.size = Pt(13); run.font.color.rgb = RGBColor.from_string(_C_AZUL_ESC)
+    _hline(doc, color=_C_AZUL_ESC, sz="8", before=0, after=6)
 
-def _h2(doc, text):
-    p=doc.add_paragraph()
-    p.paragraph_format.space_before=Pt(8); p.paragraph_format.space_after=Pt(3)
-    r=p.add_run(text); r.font.name="Arial"; r.font.size=Pt(11)
-    r.bold=True; r.font.color.rgb=_BK_BLUE2
+def _h2(doc, numero, texto):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(8); p.paragraph_format.space_after = Pt(2)
+    run = p.add_run(f"{numero}  {texto}")
+    run.bold = True; run.font.size = Pt(11); run.font.color.rgb = RGBColor.from_string(_C_AZUL_MED)
 
-def _body(doc, text, size=10, bold=False, italic=False,
-          align=WD_ALIGN_PARAGRAPH.JUSTIFY, after=5):
-    p=doc.add_paragraph(); p.alignment=align
-    p.paragraph_format.space_after=Pt(after)
-    r=p.add_run(text); r.font.name="Arial"; r.font.size=Pt(size)
-    r.bold=bold; r.italic=italic; return p
+def _body(doc, texto, size=10, bold=False, italic=False, before=1, after=3, indent=0):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(before); p.paragraph_format.space_after = Pt(after)
+    if indent: p.paragraph_format.left_indent = Cm(indent)
+    run = p.add_run(texto); run.bold = bold; run.italic = italic
+    run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(_C_CINZA)
+    return p
 
-# ── Equações matplotlib ──────────────────────────────────────────────────────
-def _eq_img(latex, w=3.8, h=0.65, fs=12):
-    if not _HAS_MPL: return None
-    try:
-        fig=plt.figure(figsize=(w,h),facecolor="white")
-        fig.text(0.5,0.5,f"${latex}$",ha="center",va="center",
-                 fontsize=fs,color="black",fontfamily="DejaVu Serif")
-        buf=io.BytesIO()
-        fig.savefig(buf,format="png",dpi=200,bbox_inches="tight",
-                    facecolor="white",pad_inches=0.08)
-        plt.close(fig); buf.seek(0); return buf
-    except: return None
+def _nota(doc, texto):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(2); p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.left_indent = Cm(0.5)
+    r1 = p.add_run("NOTA: "); r1.bold = True; r1.font.size = Pt(9)
+    r1.font.color.rgb = RGBColor.from_string(_C_AZUL_MED)
+    r2 = p.add_run(texto); r2.italic = True; r2.font.size = Pt(9)
+    r2.font.color.rgb = RGBColor.from_string(_C_CINZA)
 
-def _eq(doc, latex, fallback="", label="", w=3.8):
-    img=_eq_img(latex,w=w)
-    p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before=Pt(4); p.paragraph_format.space_after=Pt(4)
-    if img:
-        p.add_run().add_picture(img,width=Inches(w))
-    else:
-        r=p.add_run(fallback or latex); r.font.name="Cambria Math"; r.font.size=Pt(11); r.italic=True
+def _ok_str(ok): return "APROVADO" if ok else "REPROVADO"
+
+def _omml_block(doc, omml_xml, label=""):
+    try: root = etree.fromstring(omml_xml.encode("utf-8"))
+    except Exception:
+        _body(doc, f"[Equacao: {label}]", italic=True); return
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(4); p.paragraph_format.space_after = Pt(6)
+    oMathPara = OxmlElement("m:oMathPara"); pr = OxmlElement("m:oMathParaPr")
+    jc = OxmlElement("m:jc"); jc.set(qn("m:val"), "center")
+    pr.append(jc); oMathPara.append(pr); oMathPara.append(root); p._p.append(oMathPara)
     if label:
-        pl=doc.add_paragraph(); pl.alignment=WD_ALIGN_PARAGRAPH.CENTER
-        pl.paragraph_format.space_after=Pt(3)
-        r2=pl.add_run(label); r2.font.name="Arial"; r2.font.size=Pt(8)
-        r2.font.color.rgb=_BK_GRAY; r2.italic=True
+        tab = p.add_run(f"\t({label})"); tab.font.size = Pt(9)
+        tab.font.color.rgb = RGBColor.from_string(_C_CINZA)
 
-# ── Tabela genérica ──────────────────────────────────────────────────────────
-def _tbl(doc, headers, rows, widths=None, hbg=_HEX_BLUE, note=""):
-    t=doc.add_table(rows=1+len(rows),cols=len(headers)); t.style="Table Grid"
-    hr=t.rows[0]
+def EQ_ZQ():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">Z = </m:t></m:r><m:f><m:num>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t xml:space="preserve">c &#x22C5; </m:t></m:r>'
+        '<m:sSup><m:e><m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t>V</m:t></m:r></m:e>'
+        '<m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>'
+        '<m:r><m:t xml:space="preserve"> nQ</m:t></m:r></m:num><m:den>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t xml:space="preserve">S kQ</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
+def EQ_ZLINHA():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">Z = </m:t></m:r><m:d><m:dPr>'
+        '<m:begChr m:val="("/><m:endChr m:val=")"/></m:dPr><m:e>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t xml:space="preserve">R1 + jX1</m:t></m:r>'
+        '</m:e></m:d><m:r><m:t xml:space="preserve"> &#x22C5; L</m:t></m:r></m:oMath>')
+
+def EQ_ZTRAFO():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">Z T = </m:t></m:r><m:f>'
+        '<m:num><m:r><m:t xml:space="preserve">uk</m:t></m:r></m:num>'
+        '<m:den><m:r><m:t>100</m:t></m:r></m:den></m:f>'
+        '<m:r><m:t xml:space="preserve"> &#x22C5; </m:t></m:r><m:f><m:num>'
+        '<m:sSup><m:e><m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t>V</m:t></m:r></m:e>'
+        '<m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>'
+        '<m:r><m:t xml:space="preserve"> rT</m:t></m:r></m:num><m:den>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t xml:space="preserve">S rT</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
+def EQ_ICC3():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I k3 = </m:t></m:r><m:f><m:num>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t xml:space="preserve">c &#x22C5; Vn</m:t></m:r>'
+        '</m:num><m:den><m:rad><m:radPr><m:degHide m:val="1"/></m:radPr>'
+        '<m:deg/><m:e><m:r><m:t>3</m:t></m:r></m:e></m:rad>'
+        '<m:r><m:t xml:space="preserve"> &#x22C5; |Z1|</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
+def EQ_ICC2():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I k2 = </m:t></m:r><m:f><m:num>'
+        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr>'
+        '<m:deg/><m:e><m:r><m:t>3</m:t></m:r></m:e></m:rad></m:num>'
+        '<m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve"> &#x22C5; I k3</m:t></m:r></m:oMath>')
+
+def EQ_ICC1():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I k1 = </m:t></m:r><m:f><m:num>'
+        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr>'
+        '<m:deg/><m:e><m:r><m:t>3</m:t></m:r></m:e></m:rad>'
+        '<m:r><m:t xml:space="preserve"> &#x22C5; c &#x22C5; Vn</m:t></m:r></m:num><m:den>'
+        '<m:r><m:t xml:space="preserve">|2Z1 + Z0|</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
+def EQ_IP():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">ip = &#x03BA; &#x22C5; </m:t></m:r>'
+        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr>'
+        '<m:deg/><m:e><m:r><m:t>2</m:t></m:r></m:e></m:rad>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve"> &#x22C5; I k3</m:t></m:r></m:oMath>')
+
+def EQ_KAPPA():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r>'
+        '<m:t xml:space="preserve">&#x03BA; = 1,02 + 0,98 &#x22C5; </m:t></m:r>'
+        '<m:sSup><m:e><m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t>e</m:t></m:r></m:e>'
+        '<m:sup><m:r><m:t xml:space="preserve">&#x2212;3 R/X</m:t></m:r></m:sup>'
+        '</m:sSup></m:oMath>')
+
+def EQ_ZACC():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">Z acc,n = Z acc,n-1 + Z elem,n</m:t></m:r></m:oMath>')
+
+def EQ_ZSEC():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">Z sec = </m:t></m:r><m:f><m:num>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t>Z prim</m:t></m:r></m:num><m:den>'
+        '<m:sSup><m:e><m:r><m:rPr><m:sty m:val="i"/></m:rPr><m:t>n</m:t></m:r></m:e>'
+        '<m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:den></m:f>'
+        '<m:r><m:t xml:space="preserve">,  n = V prim / V sec</m:t></m:r></m:oMath>')
+
+def EQ_ALF():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:t xml:space="preserve">ALF = </m:t></m:r>'
+        '<m:f><m:num><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I k3 [A]</m:t></m:r></m:num><m:den>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I n1 [A]</m:t></m:r></m:den></m:f></m:oMath>')
+
+def _tbl(doc, headers, rows, widths=None, note="", hbg=_C_AZUL_MED):
+    n = len(headers)
+    if not widths: widths = [Cm(16.0/n)]*n
+    tbl = doc.add_table(rows=1, cols=n)
+    tbl.style = "Table Grid"; tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    hrow = tbl.rows[0]
     for i,h in enumerate(headers):
-        c=hr.cells[i]; _cs(c,hbg); _cb(c,"FFFFFF")
-        c.paragraphs[0].paragraph_format.space_before=Pt(3)
-        c.paragraphs[0].paragraph_format.space_after=Pt(3)
-        _cw(c,h,bold=True,size=8,color=_BK_WHITE)
+        cell = hrow.cells[i]; _set_cell_bg(cell,hbg)
+        _set_cell_border(cell,color="FFFFFF",sz="2")
+        _cell_write(cell,h,bold=True,size=9,color=_C_BRANCO,center=True); cell.width=widths[i]
     for ri,row in enumerate(rows):
-        tr=t.rows[ri+1]; bg=_HEX_BGROW if ri%2==0 else _HEX_WHITE
+        drow = tbl.add_row(); bg = _C_CINZA2 if ri%2==1 else _C_BRANCO
         for ci,val in enumerate(row):
-            cell=tr.cells[ci]; _cs(cell,bg); _cb(cell,"CCCCCC")
-            cell.paragraphs[0].paragraph_format.space_before=Pt(2)
-            cell.paragraphs[0].paragraph_format.space_after=Pt(2)
-            _cw(cell,val if val is not None else "—",size=8)
-    if widths:
-        for row in t.rows:
-            for ci,w in enumerate(widths): row.cells[ci].width=Cm(w)
-    if note:
-        pn=doc.add_paragraph(); pn.paragraph_format.space_before=Pt(2); pn.paragraph_format.space_after=Pt(6)
-        rn=pn.add_run(f"Nota: {note}"); rn.font.name="Arial"; rn.font.size=Pt(7.5)
-        rn.font.color.rgb=_BK_GRAY; rn.italic=True
-    return t
-
-# ── Cabeçalho/Rodapé ────────────────────────────────────────────────────────
-def _setup_hf(doc, projeto, doc_code):
-    sec=doc.sections[0]
-    sec.page_width=Cm(21); sec.page_height=Cm(29.7)
-    sec.left_margin=Cm(2.5); sec.right_margin=Cm(2)
-    sec.top_margin=Cm(2.5); sec.bottom_margin=Cm(2)
-    # Header
-    hdr=sec.header; hdr.is_linked_to_previous=False
-    for p in hdr.paragraphs: p.clear()
-    hp=hdr.paragraphs[0]; hp.alignment=WD_ALIGN_PARAGRAPH.RIGHT
-    r1=hp.add_run("BK Engenharia e Tecnologia  |  ")
-    r1.font.name="Arial"; r1.font.size=Pt(8); r1.font.color.rgb=_BK_GRAY
-    r2=hp.add_run(projeto); r2.font.name="Arial"; r2.font.size=Pt(8)
-    r2.bold=True; r2.font.color.rgb=_BK_BLUE2
-    pp=hp._p.get_or_add_pPr(); pb=OxmlElement("w:pBdr")
-    b=OxmlElement("w:bottom"); b.set(qn("w:val"),"single"); b.set(qn("w:sz"),"6")
-    b.set(qn("w:space"),"1"); b.set(qn("w:color"),_HEX_BLUE2); pb.append(b); pp.append(pb)
-    # Footer
-    ftr=sec.footer; ftr.is_linked_to_previous=False
-    for p in ftr.paragraphs: p.clear()
-    fp=ftr.paragraphs[0]; fp.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    fr=fp.add_run(f"{doc_code}  |  IEC 60909:2016  |  Pág. ")
-    fr.font.name="Arial"; fr.font.size=Pt(8); fr.font.color.rgb=_BK_GRAY
-    for tag,txt in [("begin",None),("separate",None),("end",None)]:
-        fc=OxmlElement("w:fldChar"); fc.set(qn("w:fldCharType"),tag)
-        if tag=="begin":
-            instr=OxmlElement("w:instrText"); instr.text=" PAGE "
-            run=fp.add_run(); run.font.name="Arial"; run.font.size=Pt(8)
-            run.font.color.rgb=_BK_GRAY; run._r.append(fc); run._r.append(instr)
-        else:
-            run2=fp.add_run(); run2.font.name="Arial"; run2.font.size=Pt(8)
-            run2.font.color.rgb=_BK_GRAY; run2._r.append(fc)
-
-# ── Capa ────────────────────────────────────────────────────────────────────
-def _capa(doc, info):
-    for _ in range(2): _sp(doc,2)
-    # Faixa topo
-    p=doc.add_paragraph(); p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(0)
-    pp=p._p.get_or_add_pPr(); pb=OxmlElement("w:pBdr")
-    t=OxmlElement("w:top"); t.set(qn("w:val"),"single"); t.set(qn("w:sz"),"48")
-    t.set(qn("w:space"),"1"); t.set(qn("w:color"),_HEX_BLUE); pb.append(t); pp.append(pb)
-    for _ in range(9): _sp(doc,8)
-    # Título
-    p1=doc.add_paragraph(); p1.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    r1=p1.add_run("ESTUDO DE PROTEÇÃO DO SISTEMA ELÉTRICO")
-    r1.font.name="Arial"; r1.font.size=Pt(22); r1.bold=True; r1.font.color.rgb=_BK_BLUE
+            cell = drow.cells[ci]; _set_cell_bg(cell,bg)
+            _set_cell_border(cell,color="CCCCCC",sz="2")
+            _cell_write(cell,str(val),size=9,center=(ci>0)); cell.width=widths[ci]
+    if note: _nota(doc,note)
     _sp(doc,4)
-    p2=doc.add_paragraph(); p2.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    r2=p2.add_run("Análise de Curto-Circuito e Coordenação de Relés")
-    r2.font.name="Arial"; r2.font.size=Pt(14); r2.font.color.rgb=_BK_BLUE2
-    p3=doc.add_paragraph(); p3.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    r3=p3.add_run("Metodologia IEC 60909:2016")
-    r3.font.name="Arial"; r3.font.size=Pt(10); r3.italic=True; r3.font.color.rgb=_BK_GRAY
-    for _ in range(5): _sp(doc,8)
-    _hline(doc,color=_HEX_BLUE2,sz="12",before=0,after=6)
-    for _ in range(3): _sp(doc,6)
-    # Tabela ID
-    tb=doc.add_table(rows=8,cols=2); tb.style="Table Grid"
-    fields=[
-        ("Cliente / Contratante", info.get("cliente","—")),
-        ("Projeto / Instalação",  info.get("projeto","—")),
-        ("Local",                 info.get("local","—")),
-        ("Tensão Base do Sistema",f"{info.get('v_base_kv',13.8):.1f} kV"),
-        ("Potência de Base",      f"{info.get('s_base_mva',100.0):.0f} MVA"),
-        ("Frequência",            f"{info.get('freq_hz',60.0):.0f} Hz"),
-        ("Engenheiro Responsável",info.get("engenheiro","—")),
-        ("Data / Revisão",        f"{datetime.now().strftime('%d/%m/%Y')}  —  {info.get('revisao','Rev. 0')}"),
+
+def _setup_hf(doc, projeto, doc_code, rev="00"):
+    section = doc.sections[0]
+    section.page_width=Cm(21.0); section.page_height=Cm(29.7)
+    section.top_margin=Cm(2.5); section.bottom_margin=Cm(2.0)
+    section.left_margin=Cm(3.0); section.right_margin=Cm(2.0)
+    hdr = section.header; hdr.is_linked_to_previous = False
+    hp = hdr.paragraphs[0]; hp.clear(); hp.alignment=WD_ALIGN_PARAGRAPH.RIGHT
+    r1 = hp.add_run("BK ENGENHARIA E TECNOLOGIA  |  ")
+    r1.bold=True; r1.font.size=Pt(8); r1.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
+    r2 = hp.add_run(f"{doc_code}  Rev. {rev}")
+    r2.font.size=Pt(8); r2.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    pPr=hp._p.get_or_add_pPr(); pBdr=OxmlElement("w:pBdr"); btm=OxmlElement("w:bottom")
+    btm.set(qn("w:val"),"single"); btm.set(qn("w:sz"),"4")
+    btm.set(qn("w:space"),"1"); btm.set(qn("w:color"),_C_AZUL_MED)
+    pBdr.append(btm); pPr.append(pBdr)
+    ftr=section.footer; ftr.is_linked_to_previous=False
+    fp=ftr.paragraphs[0]; fp.clear(); fp.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    r3=fp.add_run(f"{projeto}  |  Estudo de Protecao  |  Pg. ")
+    r3.font.size=Pt(8); r3.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    fld=OxmlElement("w:fldChar"); fld.set(qn("w:fldCharType"),"begin")
+    ins=OxmlElement("w:instrText"); ins.text="PAGE"; ins.set(qn("xml:space"),"preserve")
+    fld2=OxmlElement("w:fldChar"); fld2.set(qn("w:fldCharType"),"end")
+    rp=fp.add_run(); rp.font.size=Pt(8); rp.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    rp._r.append(fld); rp._r.append(ins); rp._r.append(fld2)
+
+def _capa(doc, info):
+    tbl=doc.add_table(rows=1,cols=1); tbl.alignment=WD_TABLE_ALIGNMENT.CENTER
+    cell=tbl.rows[0].cells[0]; cell.width=Cm(16.0)
+    _set_cell_bg(cell,_C_AZUL_ESC); _set_cell_border(cell,color=_C_AZUL_ESC)
+    cp=cell.paragraphs[0]; cp.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    cp.paragraph_format.space_before=Pt(12); cp.paragraph_format.space_after=Pt(12)
+    r=cp.add_run("BK ENGENHARIA E TECNOLOGIA")
+    r.bold=True; r.font.size=Pt(14); r.font.color.rgb=RGBColor.from_string(_C_BRANCO)
+    _sp(doc,28)
+    pt=doc.add_paragraph(); pt.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    rt=pt.add_run("ESTUDO DE PROTECAO E COORDENACAO")
+    rt.bold=True; rt.font.size=Pt(20); rt.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+    pt2=doc.add_paragraph(); pt2.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    rt2=pt2.add_run("DE SISTEMAS ELETRICOS DE POTENCIA")
+    rt2.bold=True; rt2.font.size=Pt(20); rt2.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+    _hline(doc,color=_C_AZUL_MED,sz="12",before=8,after=8)
+    campos=[
+        ("Projeto",info.get("projeto","---")),("Cliente",info.get("cliente","---")),
+        ("Local / Unidade",info.get("local","---")),
+        ("Codigo do Doc.",info.get("doc_code","BK-EP-001")),
+        ("Revisao",info.get("revisao","00")),
+        ("Data de Emissao",info.get("data",datetime.date.today().strftime("%d/%m/%Y"))),
+        ("Elaborado por",info.get("elaborado","Engenharia BK")),
+        ("Verificado por",info.get("verificado","---")),
+        ("Aprovado por",info.get("aprovado","---")),
+        ("Concessionaria",info.get("concessionaria","---")),
+        ("Tensao de Entrega",info.get("tensao_entrega","---")),
+        ("Classificacao","ESTUDO TECNICO -- USO EXTERNO"),
     ]
-    for i,(lbl,val) in enumerate(fields):
-        cl=tb.rows[i].cells[0]; cr=tb.rows[i].cells[1]
-        _cs(cl,_HEX_BLUE); _cb(cl,"FFFFFF"); _cs(cr,_HEX_WHITE); _cb(cr,"CCCCCC")
-        _cw(cl,lbl,bold=True,size=9,color=_BK_WHITE,align=WD_ALIGN_PARAGRAPH.LEFT)
-        _cw(cr,val,size=10,align=WD_ALIGN_PARAGRAPH.LEFT)
-    for row in tb.rows: row.cells[0].width=Cm(5.5); row.cells[1].width=Cm(10)
-    for _ in range(6): _sp(doc,8)
-    p_b=doc.add_paragraph(); p_b.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    pp2=p_b._p.get_or_add_pPr(); pb2=OxmlElement("w:pBdr")
-    t2=OxmlElement("w:top"); t2.set(qn("w:val"),"single"); t2.set(qn("w:sz"),"8")
-    t2.set(qn("w:space"),"1"); t2.set(qn("w:color"),_HEX_BLUE); pb2.append(t2); pp2.append(pb2)
-    rb=p_b.add_run("BK Engenharia e Tecnologia  —  Proteção e Automação de Sistemas Elétricos")
-    rb.font.name="Arial"; rb.font.size=Pt(8); rb.font.color.rgb=_BK_GRAY
+    _tbl(doc,["CAMPO","INFORMACAO"],campos,widths=[Cm(5.5),Cm(10.5)],hbg=_C_AZUL_ESC)
+    _sp(doc,10)
+    pa=doc.add_paragraph(); pa.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    ra=pa.add_run("Documento elaborado em conformidade com IEC 60909:2016 | IEC 61869-2 | IEC 62271-100 | IEC 60255")
+    ra.italic=True; ra.font.size=Pt(9); ra.font.color.rgb=RGBColor.from_string(_C_CINZA)
     doc.add_page_break()
 
-# ── Seção 1: Objetivo ────────────────────────────────────────────────────────
 def _sec1(doc, info):
-    _h1(doc,"1. OBJETIVO")
-    _body(doc,
-        f"O presente documento apresenta o estudo de proteção do sistema elétrico de "
-        f"{info.get('projeto','instalação elétrica')}, compreendendo: (i) análise de "
-        f"curto-circuito segundo a norma IEC 60909:2016; (ii) dimensionamento dos equipamentos "
-        f"de proteção (TC, TP, disjuntores); e (iii) ajuste dos relés de sobrecorrente de fase "
-        f"e terra, com verificação de coordenação e seletividade."
-    )
-    _body(doc,
-        "O relatório foi elaborado para atender às exigências da concessionária distribuidora "
-        "de energia e às prescrições das normas técnicas aplicáveis, garantindo a proteção "
-        "adequada das instalações e a seletividade na atuação dos dispositivos de proteção."
-    )
+    _h1(doc,"1","OBJETO E ESCOPO")
+    projeto=info.get("projeto","instalacao eletrica"); cliente=info.get("cliente","cliente")
+    local=info.get("local","local nao informado"); tensao=info.get("tensao_entrega","---")
+    concess=info.get("concessionaria","concessionaria distribuidora")
+    _body(doc,f'O presente documento tem por objeto apresentar o Estudo de Protecao e Coordenacao referente ao empreendimento "{projeto}", de titularidade de {cliente}, localizado em {local}.')
+    _body(doc,f"O estudo contempla a conexao ao sistema eletrico da {concess} em tensao de {tensao}, incluindo todos os elementos desde o ponto de entrega ate as barras de distribuicao internas.")
+    _h2(doc,"1.1","Objetivos Especificos")
+    for obj in [
+        "Calcular as correntes de curto-circuito trifasica, bifasica e monofasica em todas as barras, pelo metodo IEC 60909:2016;",
+        "Dimensionar os Transformadores de Corrente (TC), de Potencial (TP) e Disjuntores conforme IEC 61869-2, IEC 61869-3 e IEC 62271-100;",
+        "Definir os ajustes dos reles de protecao e verificar a coordenacao e seletividade;",
+        "Gerar o coordenograma Tempo x Corrente demonstrando a hierarquia de protecao;",
+        "Atender os requisitos tecnicos da concessionaria para aprovacao do projeto de conexao.",
+    ]:
+        p=doc.add_paragraph(style="List Number")
+        p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(2)
+        p.paragraph_format.left_indent=Cm(0.8)
+        run=p.add_run(obj); run.font.size=Pt(10); run.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    _sp(doc,4)
 
-# ── Seção 2: Normas ──────────────────────────────────────────────────────────
 def _sec2(doc):
-    _h1(doc,"2. NORMAS E REFERÊNCIAS TÉCNICAS")
+    _h1(doc,"2","REFERENCIAS NORMATIVAS")
     normas=[
-        ("IEC 60909:2016",       "Short-circuit currents in three-phase a.c. systems — Calculation of currents"),
-        ("IEC 61869-2:2012",     "Instrument transformers — Additional requirements for current transformers"),
-        ("IEC 61869-3:2011",     "Instrument transformers — Additional requirements for inductive voltage transformers"),
-        ("IEC 62271-100:2021",   "High-voltage switchgear — Alternating current circuit-breakers"),
-        ("IEC 60255-151:2009",   "Measuring relays — Functional requirements for over/under-current protection"),
-        ("IEC 60076-1:2011",     "Power transformers — General"),
-        ("NBR 5460:1992",        "Sistemas elétricos de potência — Terminologia"),
-        ("NBR 14039:2005",       "Instalações elétricas de média tensão — Procedimentos"),
-        ("IEEE C37.112:1996",    "IEEE Standard Inverse-Time Characteristic Equations for Overcurrent Relays"),
+        ("IEC 60909:2016","Short-circuit currents in three-phase AC systems -- Calculation of currents"),
+        ("IEC 61869-2:2012","Instrument transformers -- Additional requirements for current transformers"),
+        ("IEC 61869-3:2011","Instrument transformers -- Additional requirements for inductive voltage transformers"),
+        ("IEC 62271-100:2021","High-voltage switchgear -- Part 100: AC circuit-breakers"),
+        ("IEC 60255-151:2009","Measuring relays and protection equipment -- Over/under-current protection"),
+        ("IEC 60076-1:2011","Power transformers -- General"),
+        ("IEC 60076-5:2006","Power transformers -- Ability to withstand short circuit"),
+        ("NBR 14039:2005","Instalacoes eletricas de media tensao de 1,0 kV a 36,2 kV"),
+        ("NBR 5410:2004","Instalacoes eletricas de baixa tensao"),
+        ("PRODIST -- Modulo 3","Acesso ao sistema de distribuicao (ANEEL)"),
+        ("NT da Concessionaria","Conexao de sistemas de protecao ao sistema de distribuicao"),
     ]
-    _tbl(doc,["Norma / Padrão","Título"],normas,widths=[4.5,11.5])
+    _tbl(doc,["Norma / Documento","Titulo / Descricao"],normas,widths=[Cm(5.0),Cm(11.0)],hbg=_C_AZUL_ESC)
 
-# ── Seção 3: Metodologia ─────────────────────────────────────────────────────
 def _sec3(doc, c_factor=1.10):
-    _h1(doc,"3. METODOLOGIA DE CÁLCULO")
-    # 3.1
-    _h2(doc,"3.1  Curto-circuito trifásico simétrico — I″k3φ")
-    _body(doc,
-        "O curto-circuito trifásico simétrico representa o caso mais severo e constitui a "
-        "referência para dimensionamento de equipamentos (IEC 60909:2016, eq. 29):"
-    )
-    _eq(doc,r"I''_{k3\phi} = \dfrac{c \cdot U_n}{\sqrt{3} \cdot |Z_1|}",
-        fallback="I\"k3φ = c·Un / (√3·|Z₁|)",
-        label="Eq. (1) — Corrente de curto-circuito trifásica simétrica inicial",w=4.2)
-    _tbl(doc,["Símbolo","Descrição"],[
-        ("I\"k3φ  [kA]","Corrente de curto-circuito trifásica inicial"),
-        ("c  [—]",f"Fator de tensão: {c_factor:.2f} (máximo) / 0,95 (mínimo) — IEC 60909 Tab. 1"),
-        ("Un  [kV]","Tensão nominal do sistema no ponto de falta"),
-        ("|Z₁|  [Ω]","Módulo da impedância de sequência positiva acumulada até o ponto"),
-    ],widths=[3.5,12.5],hbg=_HEX_BLUE2)
+    _h1(doc,"3","METODOLOGIA DE CALCULO")
+    _body(doc,"O calculo de curtos-circuitos e realizado pelo Metodo das Componentes Simetricas, conforme IEC 60909:2016, utilizando o equivalente de tensao da rede para determinacao das correntes de falta maximas (I''k). O metodo e valido para redes radiais e malhadas com acumulacao de impedancias por BFS (Breadth-First Search).")
+    _h2(doc,"3.1","Fator de Tensao c  (IEC 60909 -- Tabela 1)")
+    _body(doc,f"O fator c simula a tensao maxima no ponto de falta. Para correntes maximas (pior caso): c = {c_factor:.2f}.")
+    _tbl(doc,["Nivel de Tensao","c max","c min","Aplicacao"],[
+        ("Baixa tensao (< 1 kV)","1,05","0,95","Sistemas 127/220/380 V"),
+        ("Alta tensao (> 1 kV)","1,10","1,00","Sistemas MT e AT (adotado neste estudo)"),
+    ],widths=[Cm(4.5),Cm(1.8),Cm(1.8),Cm(7.9)],hbg=_C_AZUL_ESC)
+    _h2(doc,"3.2","Impedancia da Fonte (Concessionaria)")
+    _body(doc,"A impedancia equivalente no ponto de entrega e calculada a partir do nivel de curto S''kQ (IEC 60909 Eq. 18):")
+    _omml_block(doc,EQ_ZQ(),label="3.1")
+    _body(doc,"Onde: c = fator de tensao; VnQ = tensao nominal [kV]; S''kQ = potencia de curto-circuito trifasica [MVA].",size=9,italic=True)
+    _h2(doc,"3.3","Impedancia de Linhas e Cabos  (IEC 60909 Tabela 3)")
+    _omml_block(doc,EQ_ZLINHA(),label="3.2")
+    _body(doc,"Onde: R1, X1 = resistencia e reatancia positivas [Ohm/km]; L = comprimento [km].",size=9,italic=True)
+    _h2(doc,"3.4","Impedancia de Transformadores  (IEC 60909 sec.3.3.2)")
+    _omml_block(doc,EQ_ZTRAFO(),label="3.3")
+    _omml_block(doc,EQ_ZSEC(),label="3.4")
+    _h2(doc,"3.5","Acumulacao de Impedancias em Rede Radial")
+    _omml_block(doc,EQ_ZACC(),label="3.5")
+    _h2(doc,"3.6","Correntes de Curto-Circuito  (IEC 60909 sec.4)")
+    _body(doc,"Falta trifasica (simetrica inicial):",bold=True,size=10)
+    _omml_block(doc,EQ_ICC3(),label="3.6")
+    _body(doc,"Falta bifasica (sem terra):",bold=True,size=10)
+    _omml_block(doc,EQ_ICC2(),label="3.7")
+    _body(doc,"Falta monofasica (fase-terra):",bold=True,size=10)
+    _omml_block(doc,EQ_ICC1(),label="3.8")
+    _body(doc,"Corrente de pico (componente assincrona maxima):",bold=True,size=10)
+    _omml_block(doc,EQ_IP(),label="3.9")
+    _omml_block(doc,EQ_KAPPA(),label="3.10")
+    _nota(doc,"Todas as correntes calculadas sao correntes simetricas iniciais (I''k), sem decaimento temporal.")
     _sp(doc,4)
-    # 3.2
-    _h2(doc,"3.2  Curto-circuito bifásico — I″k2φ  (IEC 60909:2016, eq. 45)")
-    _eq(doc,r"I''_{k2\phi} = \dfrac{\sqrt{3}}{2} \cdot I''_{k3\phi}",
-        fallback="I\"k2φ = (√3/2) · I\"k3φ",label="Eq. (2) — Corrente bifásica")
-    _sp(doc,4)
-    # 3.3
-    _h2(doc,"3.3  Curto-circuito monofásico — I″k1φ  (IEC 60909:2016, eq. 52)")
-    _body(doc,
-        "Depende das três impedâncias de sequência (positiva Z₁, negativa Z₂ e zero Z₀). "
-        "Válida somente quando Z₀ ≠ ∞ (neutro aterrado no ponto de falta):"
-    )
-    _eq(doc,r"I''_{k1\phi} = \dfrac{\sqrt{3} \cdot c \cdot U_n}{|Z_1 + Z_2 + Z_0|}",
-        fallback="I\"k1φ = √3·c·Un / |Z₁+Z₂+Z₀|",
-        label="Eq. (3) — Corrente monofásica (falta fase-terra)",w=4.5)
-    _body(doc,
-        "Trafos Yg-D: Z₀ → ∞ no secundário → I\"k1φ = 0 (bloqueio de sequência zero).",
-        italic=True,size=9)
-    _sp(doc,4)
-    # 3.4
-    _h2(doc,"3.4  Impedâncias de sequência por tipo de elemento  (IEC 60909:2016 Tabelas 3–4)")
-    _tbl(doc,["Elemento","Z₁ (positiva)","Z₂ (negativa)","Z₀ (zero)"],[
-        ("Linha / Cabo","(R₁+jX₁)·L","= Z₁","(R₀+jX₀)·L  ou  ≈3,5R₁+j3X₁"),
-        ("Transformador","(%Z/100)·Un²/S","= Z₁","Depende da ligação: Yg-Yg ≈ Z₁ ; Yg-D = ∞"),
-        ("Fonte (concessionária)","Un²/Scc com X/R dado","≈ Z₁","≈ Z₁ (aprox. conservadora)"),
-        ("Gerador síncrono","KG·jX\"d","jX₂  (X₂ ≠ X\"d)","jX₀ (neutro aterrado) ou ∞"),
-        ("Motor de indução","j·X\"·(V²/S)","≈ Z₁","∞ (neutro isolado)"),
-    ],widths=[3.5,4.5,3.5,4.5])
-    _sp(doc,4)
-    # 3.5
-    _h2(doc,"3.5  Corrente de pico ip e fator de assimetria κ  (IEC 60909:2016, eq. 74–75)")
-    _eq(doc,r"\kappa = 1{,}02 + 0{,}98 \cdot e^{-3\,/\,(X/R)}",
-        fallback="κ = 1,02 + 0,98·e^(−3/(X/R))",label="Eq. (4) — Fator de assimetria κ")
-    _eq(doc,r"i_p = \kappa \cdot \sqrt{2} \cdot I''_{k3\phi}",
-        fallback="ip = κ·√2·I\"k3φ",label="Eq. (5) — Corrente de pico (crista)")
-    _sp(doc,4)
-    # 3.6
-    _h2(doc,"3.6  Impedância base e referência de tensão")
-    _eq(doc,
-        r"Z_{base} = \dfrac{U_n^2}{S_{cc}} \quad\Rightarrow\quad "
-        r"Z_{trafo} = \dfrac{\%Z}{100} \cdot \dfrac{U_n^2}{S_{trafo}}",
-        fallback="Zbase = Un²/Scc  →  Ztrafo = (%Z/100)·Un²/Strafo",
-        label="Eq. (6) — Impedância base e impedância do transformador",w=5.5)
-    _body(doc,
-        "Ao cruzar um transformador, as impedâncias são referidas à nova base de tensão: "
-        "Z_sec = Z_prim / n²   onde   n = V_prim / V_sec.",italic=True,size=9)
 
-# ── Seção 4: Dados do sistema ────────────────────────────────────────────────
 def _sec4(doc, system, elements):
-    _h1(doc,"4. DADOS DO SISTEMA ELÉTRICO")
-    _h2(doc,"4.1  Parâmetros gerais do estudo")
-    zr=getattr(system,'z_source_r_ohm',0.0); zx=getattr(system,'z_source_x_ohm',0.0)
-    zm=math.sqrt(zr**2+zx**2)
-    v=getattr(system,'v_base_kv',13.8)
-    scc_est=round(v**2/zm,2) if zm>1e-6 else 0.0
-    xr=round(zx/zr,1) if zr>1e-9 else 0.0
-    _tbl(doc,["Parâmetro","Valor"],[
-        ("Tensão base",          f"{getattr(system,'v_base_kv',13.8):.1f} kV"),
-        ("Potência de base",     f"{getattr(system,'s_base_mva',100.0):.0f} MVA"),
-        ("Frequência",           f"{getattr(system,'frequency_hz',60.0):.0f} Hz"),
-        ("Fator de tensão c",    f"{getattr(system,"voltage_factor_c",1.10):.2f}"),
-        ("Tempo de falta (tf)",  f"{getattr(system,'fault_time_s',0.5):.2f} s"),
-        ("Z_fonte (R + jX)",     f"({zr:.4f} + j{zx:.4f}) Ω   →   |Z| = {zm:.4f} Ω"),
-        ("Scc concessionária",   f"{scc_est:.1f} MVA (calculado)"),
-        ("X/R da rede",          f"{xr:.1f}"),
-    ],widths=[7.5,8.5])
-    _sp(doc,4)
-    _h2(doc,"4.2  Elementos da rede — dados de entrada")
+    _h1(doc,"4","DADOS DO SISTEMA E ELEMENTOS DE REDE")
+    _h2(doc,"4.1","Parametros do Sistema")
+    scc_mva=getattr(system,"short_circuit_mva_source",None)
+    xr=getattr(system,"xr_ratio_source",10.0) or 10.0
+    v_base=getattr(system,"v_base_kv",0.0)
+    c_factor=getattr(system,"voltage_factor_c",1.10)
+    z_r=getattr(system,"z_source_r_ohm",0.0) or 0.0
+    z_x=getattr(system,"z_source_x_ohm",0.0) or 0.0
+    z_mag=math.sqrt(z_r**2+z_x**2) if (z_r or z_x) else 0.0
+    icc_src=round(c_factor*v_base/(math.sqrt(3)*z_mag),3) if z_mag>1e-9 else 0.0
+    _tbl(doc,["Parametro","Valor"],[
+        ("Tensao base do sistema",f"{v_base:.3f} kV"),
+        ("Nivel de curto S''kQ",f"{scc_mva:.1f} MVA" if scc_mva else "Ver Z fonte"),
+        ("Relacao X/R da rede",f"{xr:.1f}"),
+        ("Impedancia da fonte  R1",f"{z_r:.6f} Ohm"),
+        ("Impedancia da fonte  X1",f"{z_x:.6f} Ohm"),
+        ("|Z1_fonte|",f"{z_mag:.6f} Ohm"),
+        ("Fator de tensao c",f"{c_factor:.2f}"),
+        ("Icc na barra de entrada (3f)",f"{icc_src:.3f} kA"),
+        ("Frequencia","60 Hz"),
+    ],widths=[Cm(8.0),Cm(8.0)],hbg=_C_AZUL_ESC)
+    _h2(doc,"4.2","Dados dos Elementos de Rede")
     if not elements:
-        _body(doc,"Nenhum elemento cadastrado.",italic=True); return
-    hdrs=["Código","Tipo","De","Para","V (kV)","L (km)",
-          "R₁ (Ω/km)","X₁ (Ω/km)","kVA","%Z","Ligação"]
-    rows=[]
-    for e in elements:
-        et=getattr(e,'element_type','—'); ets=et.value if hasattr(et,'value') else str(et)
-        tc=getattr(e,'trafo_connection','—'); tcs=tc.value if hasattr(tc,'value') else str(tc)
-        rows.append([
-            getattr(e,'code','—'), ets,
-            getattr(e,'bus_from','—'), getattr(e,'bus_to','—'),
-            f"{getattr(e,'voltage_kv',0):.1f}",
-            f"{getattr(e,'length_km',0):.3f}" if getattr(e,'length_km',0) else "—",
-            f"{getattr(e,'r1_ohm_km',0):.4f}" if getattr(e,'r1_ohm_km',0) else "—",
-            f"{getattr(e,'x1_ohm_km',0):.4f}" if getattr(e,'x1_ohm_km',0) else "—",
-            f"{getattr(e,'trafo_kva',0):.0f}" if getattr(e,'trafo_kva',0) else "—",
-            f"{getattr(e,'trafo_z_percent',0):.1f}%" if getattr(e,'trafo_z_percent',0) else "—",
-            tcs,
-        ])
-    _tbl(doc,hdrs,rows,
-         widths=[1.8,2.2,1.8,1.8,1.5,1.5,2.0,2.0,1.5,1.5,2.4],
-         note="R₁ e X₁ são as impedâncias de sequência positiva. "
-              "Linha sem R₁/X₁ → impedância = 0 → Icc = máximo da fonte.")
+        _body(doc,"Nenhum elemento de rede cadastrado."); return
+    linhas=[e for e in elements if str(getattr(e,"element_type","")).lower() in ("linha","linha_aerea","cabo","cabo_subterraneo","alimentador")]
+    trafos=[e for e in elements if str(getattr(e,"element_type","")).lower() in ("trafo","transformador")]
+    if linhas:
+        _body(doc,"Linhas e Cabos:",bold=True,size=10)
+        rows_l=[(getattr(e,"code","---"),str(getattr(e,"element_type","---")),
+            f"{getattr(e,'bus_from','?')} -> {getattr(e,'bus_to','?')}",
+            f"{getattr(e,'voltage_kv',0):.1f}",f"{getattr(e,'length_km',0):.3f}",
+            f"{getattr(e,'r1_ohm_km',0):.4f}",f"{getattr(e,'x1_ohm_km',0):.4f}",
+            f"{getattr(e,'r0_ohm_km',0) or '---'}",f"{getattr(e,'x0_ohm_km',0) or '---'}") for e in linhas]
+        _tbl(doc,["Cod","Tipo","Barras","V(kV)","L(km)","R1","X1","R0","X0"],rows_l,
+            widths=[Cm(1.5),Cm(1.8),Cm(3.0),Cm(1.4),Cm(1.4),Cm(1.8),Cm(1.8),Cm(1.6),Cm(1.7)],note="R1,X1,R0,X0 em Ohm/km.")
+    if trafos:
+        _body(doc,"Transformadores:",bold=True,size=10)
+        rows_t=[(getattr(e,"code","---"),f"{getattr(e,'bus_from','?')} -> {getattr(e,'bus_to','?')}",
+            f"{getattr(e,'voltage_kv',0):.3f} / {getattr(e,'trafo_voltage_sec_kv',0):.3f}",
+            f"{getattr(e,'trafo_kva',0):.0f} kVA",f"{getattr(e,'trafo_z_percent',0):.2f} %",
+            str(getattr(e,"trafo_connection","---"))) for e in trafos]
+        _tbl(doc,["Cod","Barras","V AT/BT (kV)","Potencia","uk (%)","Ligacao"],rows_t,
+            widths=[Cm(1.8),Cm(3.2),Cm(3.5),Cm(2.5),Cm(2.0),Cm(3.0)])
+    _sp(doc,4)
 
-# ── Seção 5: Resultados CC ───────────────────────────────────────────────────
-def _sec5(doc, sc):
-    _h1(doc,"5. RESULTADOS DE CURTO-CIRCUITO POR BARRA")
-    _body(doc,
-        "Correntes de curto-circuito calculadas por barra conforme IEC 60909:2016. "
-        "Fator c = 1,10 (correntes máximas — base para dimensionamento).")
-    if not sc:
-        _body(doc,"Nenhum resultado disponível.",italic=True); return
-    hdrs=["Elem.","Barra","R₁ (Ω)","X₁ (Ω)","|Z₁| (Ω)","I\"k3φ (kA)",
-          "I\"k2φ (kA)","I\"k1φ (kA)","ip (kA)","κ"]
-    rows=[]
-    for r in sc:
-        z1=getattr(r,'z1_ohm',0+0j)
-        ik1=getattr(r,'icc_1ph_ka',0)
-        rows.append([
-            getattr(r,'element_code','—'), getattr(r,'bus_to','—'),
-            f"{z1.real:.4f}", f"{z1.imag:.4f}", f"{abs(z1):.4f}",
-            f"{getattr(r,'icc_3ph_ka',0):.3f}", f"{getattr(r,'icc_2ph_ka',0):.3f}",
-            f"{ik1:.3f}" if ik1 else "BLOQ.",
-            f"{getattr(r,'icc_peak_ka',0):.3f}", f"{getattr(r,'kappa_factor',0):.3f}",
-        ])
-    _tbl(doc,hdrs,rows,
-         widths=[2.0,2.0,2.0,2.0,2.2,2.5,2.5,2.5,2.5,1.8],
-         note="BLOQ. = curto monofásico bloqueado (Z₀ = ∞) pela ligação do trafo (Yg-D).")
+def _sec5(doc, sc_results, system=None):
+    _h1(doc,"5","RESULTADOS -- IMPEDANCIAS POR BARRA E CORRENTES DE CURTO-CIRCUITO")
+    c=getattr(system,"voltage_factor_c",1.10) if system else 1.10
+    if not sc_results:
+        _body(doc,"Nenhum resultado disponiVel. Execute o calculo IEC 60909 primeiro."); return
+    _h2(doc,"5.1","Impedancias Acumuladas por Barra")
+    _body(doc,"Impedancias de sequencia acumuladas desde a fonte ate cada barra pelo processo BFS:")
+    rows_z=[]
+    for r in sc_results:
+        z1=getattr(r,"z1_ohm",0j) or 0j; z0=getattr(r,"z0_ohm",None)
+        z1_mag=abs(z1); z0_mag=abs(z0) if z0 is not None else None
+        xr_val=z1.imag/z1.real if z1.real>1e-9 else 0.0
+        kappa=getattr(r,"kappa_factor",0.0) or 0.0
+        rows_z.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
+            f"{z1.real:.5f}",f"{z1.imag:.5f}",f"{z1_mag:.5f}",
+            f"{z0.real:.5f}" if z0 is not None else "---",
+            f"{z0.imag:.5f}" if z0 is not None else "---",
+            f"{z0_mag:.5f}" if z0_mag is not None else "INF",
+            f"{xr_val:.2f}",f"{kappa:.3f}"))
+    _tbl(doc,["Elem","Barra","R1(Ohm)","X1(Ohm)","|Z1|(Ohm)","R0(Ohm)","X0(Ohm)","|Z0|(Ohm)","X/R","kappa"],rows_z,
+        widths=[Cm(1.4),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.6),Cm(1.6),Cm(1.6),Cm(1.2),Cm(1.4)],
+        hbg=_C_AZUL_MED,note="Z0=INF indica sequencia zero bloqueada (trafo Yg-D em serie).")
+    _h2(doc,"5.2","Correntes de Curto-Circuito por Barra")
+    rows_i=[]
+    for r in sc_results:
+        icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
+        icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+        k=getattr(r,"kappa_factor",0.0) or 0.0; bt=getattr(r,"icc_3ph_lv_ka",0.0) or 0.0
+        rows_i.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
+            f"{icc3:.3f}",f"{icc2:.3f}",f"{icc1:.3f}" if icc1>0 else "BLOQ.",
+            f"{ip:.3f}",f"{k:.3f}",f"{bt:.3f}" if bt>0 else "---"))
+    _tbl(doc,["Elem","Barra","Ik3(kA)","Ik2(kA)","Ik1(kA)","ip(kA)","kappa","Ik3-BT(kA)"],rows_i,
+        widths=[Cm(1.4),Cm(1.8),Cm(2.0),Cm(2.0),Cm(2.0),Cm(2.0),Cm(1.6),Cm(2.2)],
+        hbg=_C_AZUL_MED,note="BLOQ. = sequencia zero bloqueada. Ik3-BT = corrente no secundario do trafo.")
+    _h2(doc,"5.3","Memoria de Calculo -- Substituicao Numerica por Barra")
+    _body(doc,"Para cada barra apresenta-se a memoria de calculo com substituicao numerica completa nas equacoes IEC 60909:")
+    for r in sc_results:
+        ec=getattr(r,"element_code","?"); bn=getattr(r,"bus_name","?")
+        z1=getattr(r,"z1_ohm",0j) or 0j; z0=getattr(r,"z0_ohm",None)
+        icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
+        icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+        k=getattr(r,"kappa_factor",0.0) or 0.0; z1m=abs(z1)
+        xr=z1.imag/z1.real if z1.real>1e-9 else 0.0; warns=getattr(r,"warnings",[]) or []
+        ps=doc.add_paragraph(); ps.paragraph_format.space_before=Pt(8)
+        ps.paragraph_format.space_after=Pt(2); ps.paragraph_format.left_indent=Cm(0.3)
+        rs=ps.add_run(f"Barra {bn}  ({ec})")
+        rs.bold=True; rs.font.size=Pt(10); rs.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
+        mem=[
+            ("Z1 acumulada",f"({z1.real:.6f} + j{z1.imag:.6f}) Ohm"),
+            ("|Z1|",f"sqrt({z1.real:.6f}^2 + {z1.imag:.6f}^2) = {z1m:.6f} Ohm"),
+            ("X/R",f"{xr:.4f}"),
+            ("kappa = 1,02 + 0,98 x exp(-3 x R/X)",f"= {k:.4f}"),
+            ("Ik3 = c x Vn / (sqrt(3) x |Z1|)",f"= {c:.2f} x Vn / (1,7321 x {z1m:.6f}) = {icc3:.3f} kA"),
+            ("Ik2 = (sqrt(3)/2) x Ik3",f"= 0,8660 x {icc3:.3f} = {icc2:.3f} kA"),
+        ]
+        if z0 is not None and icc1>0:
+            z_den=abs(2*z1+z0)
+            mem.append(("Ik1 = sqrt(3) x c x Vn / |2Z1 + Z0|",f"= 1,7321 x {c:.2f} x Vn / {z_den:.6f} = {icc1:.3f} kA"))
+        else:
+            mem.append(("Ik1","BLOQUEADA -- Z0 = INF (trafo Yg-D em serie)"))
+        mem.append(("ip = kappa x sqrt(2) x Ik3",f"= {k:.4f} x 1,4142 x {icc3:.3f} = {ip:.3f} kA"))
+        for w in warns: mem.append(("Obs.",str(w)))
+        _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)
-    # Memória do 1º ponto
-    if sc:
-        _h2(doc,"5.1  Memória de cálculo — exemplo do ponto mais crítico")
-        r0=max(sc,key=lambda r:getattr(r,'icc_3ph_ka',0))
-        z1=getattr(r0,'z1_ohm',0+0j); zm=abs(z1)
-        ik3=getattr(r0,'icc_3ph_ka',0); ik2=getattr(r0,'icc_2ph_ka',0)
-        k=getattr(r0,'kappa_factor',1.8); ip=getattr(r0,'icc_peak_ka',0)
-        xr=abs(z1.imag/z1.real) if abs(z1.real)>1e-10 else 100.0
-        code=getattr(r0,'element_code','E1'); bus=getattr(r0,'bus_to','BUS')
-        _tbl(doc,["Variável / Cálculo","Resultado"],[
-            ("Ponto de falta",          f"{code} — Barra: {bus}"),
-            ("Z₁ acumulada",            f"({z1.real:.4f} + j{z1.imag:.4f}) Ω   →   |Z₁| = {zm:.4f} Ω"),
-            ("X/R",                     f"{xr:.2f}"),
-            ("I\"k3φ = c·Un/(√3·|Z₁|)","= 1,10 · Un / (1,732 · {:.4f}) = {:.3f} kA".format(zm,ik3)),
-            ("I\"k2φ = (√3/2)·I\"k3φ", "= 0,866 · {:.3f} = {:.3f} kA".format(ik3,ik2)),
-            ("κ = 1,02+0,98·e^(−3/XR)","= 1,02 + 0,98·e^(−3/{:.2f}) = {:.4f}".format(xr,k)),
-            ("ip = κ·√2·I\"k3φ",        "= {:.4f} · 1,414 · {:.3f} = {:.3f} kA".format(k,ik3,ip)),
-        ],widths=[8,8],hbg=_HEX_BLUE2)
 
-# ── Seção 6: Dimensionamento ─────────────────────────────────────────────────
-def _sec6(doc, ct, vt, br):
-    _h1(doc,"6. DIMENSIONAMENTO DE EQUIPAMENTOS DE PROTEÇÃO")
-    # TC
-    _h2(doc,"6.1  Transformadores de Corrente — TC  (IEC 61869-2)")
-    _body(doc,
-        "Critérios de seleção: corrente primária ≥ 1,2·Icarga_max; "
-        "Tensão de joelho Vk ≥ Iss·(Rrelé+Rfio)·Ks; "
-        "Fator de limitação de acurácia (ALF) adequado à função de proteção.")
-    _eq(doc,r"I_{prim} \geq 1{,}2 \cdot I_{carga\,max}",
-        fallback="Iprim ≥ 1,2·Icarga_max",label="Eq. (7) — Corrente primária mínima do TC")
-    _eq(doc,r"V_k \geq I_{ss} \cdot (R_{rel\acute{e}} + R_{fio}) \cdot K_s",
-        fallback="Vk ≥ Iss·(Rrelé+Rfio)·Ks",label="Eq. (8) — Tensão de joelho mínima")
-    if ct:
-        _tbl(doc,["Elem.","Iprim (A)","Relação TC","ALF","Classe","Sn (VA)",
-                  "Vk min (V)","Vk adot. (V)","V (kV)","BIL (kV)","OK?"],
-             [[getattr(r,'element_code','—'),
-               f"{getattr(r,'ip_nominal_a',0):.0f}",
-               getattr(r,'ip_ratio_string','—'),
-               str(getattr(r,'alf_adopted','—')),
-               getattr(r,'accuracy_class','—'),
-               f"{getattr(r,'sn_tc_va',0):.0f}",
-               f"{getattr(r,'vk_required_v',0):.1f}",
-               f"{getattr(r,'vk_adopted_v',0):.1f}",
-               f"{getattr(r,'system_voltage_adopted_kv',0):.1f}",
-               f"{getattr(r,'bil_kv',0):.0f}",
-               "✓" if getattr(r,'saturation_check_ok',False) else "✗"] for r in ct],
-             widths=[1.8,2.0,2.5,1.5,2.0,1.8,2.2,2.2,1.8,2.2,1.5])
-    else:
-        _body(doc,"Dados de TC não disponíveis. Execute o cálculo completo.",italic=True)
+def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
+    _h1(doc,"6","DIMENSIONAMENTO DE EQUIPAMENTOS DE PROTECAO E MEDICAO")
+    _body(doc,"O dimensionamento e realizado com base nas correntes calculadas na Secao 5, observando os criterios normativos de cada equipamento.")
+    _h2(doc,"6.1","Transformadores de Corrente (TC) -- IEC 61869-2")
+    _body(doc,"Criterio principal: Fator de Limite de Precisao (ALF) minimo para que o TC nao sature durante a corrente de falta maxima:")
+    _omml_block(doc,EQ_ALF(),label="6.1")
+    _tbl(doc,["Criterio","Formula / Regra","Norma"],[
+        ("Corrente nominal I_n1","I_n1 >= 1,2 x I_carga_nominal","IEC 61869-2 sec.6.1"),
+        ("ALF minimo de protecao","ALF >= Ik3 [A] / I_n1 [A]","IEC 61869-2 sec.6.3"),
+        ("Classe de precisao","5P para protecao; 10P para sobrecorrente simples","IEC 61869-2 Tab.3"),
+        ("Tensao de knee-point (PS)","Vk >= ALF x I_n2 x (R_CT + R_burden)","IEC 61869-2 sec.6.4"),
+    ],widths=[Cm(4.0),Cm(8.0),Cm(4.0)])
+    if ct_results:
+        rows_ct=[]
+        for ct in ct_results:
+            icc3=getattr(ct,"icc_3ph_ka_bus",0.0) or 0.0; in1=getattr(ct,"rated_primary_A",0.0) or 0.0
+            alf_calc=round((icc3*1000)/in1,1) if in1>0 else 0.0
+            alf_nom=getattr(ct,"alf",20.0) or 20.0; classe=getattr(ct,"accuracy_class","5P20")
+            ok=alf_nom>=alf_calc
+            rows_ct.append((getattr(ct,"element_code","---"),getattr(ct,"bus_name","---"),
+                f"{in1:.0f} / 5 A",f"{icc3:.3f} kA",f"{alf_calc:.1f}",f"{alf_nom:.0f}",classe,_ok_str(ok)))
+        _tbl(doc,["Elem","Barra","Relacao(A)","Ik3(kA)","ALF calc","ALF nom","Classe","Result."],rows_ct,
+            widths=[Cm(1.4),Cm(1.8),Cm(2.2),Cm(2.0),Cm(1.8),Cm(1.8),Cm(2.0),Cm(3.0)],
+            note="TC aprovado se ALF_nominal >= ALF_calc.")
+    else: _body(doc,"Resultados de TC nao disponiveis.",italic=True)
+    _h2(doc,"6.2","Transformadores de Potencial (TP) -- IEC 61869-3")
+    _tbl(doc,["Criterio","Formula / Regra","Norma"],[
+        ("Tensao primaria","VrTV >= V_sistema / sqrt(3)  (fase-terra)","IEC 61869-3 sec.5.3"),
+        ("Classe de medicao","Classe 0.5 para medicao fiscal; 3P para protecao","IEC 61869-3 Tab.1"),
+        ("Fator de tensao (FT)","FT = 1,9 por 8 h para sistema isolado","IEC 61869-3 sec.5.3.3"),
+        ("Burden maximo","Carga real <= B_nominal (10/25/50/100 VA)","IEC 61869-3 sec.6.2"),
+    ],widths=[Cm(4.0),Cm(8.0),Cm(4.0)])
+    if vt_results:
+        rows_vt=[]
+        for vt in vt_results:
+            ok=getattr(vt,"is_valid",True)
+            rows_vt.append((getattr(vt,"element_code","---"),getattr(vt,"bus_name","---"),
+                getattr(vt,"rated_primary_kv","---"),getattr(vt,"rated_secondary_v","115 V"),
+                getattr(vt,"accuracy_class","0.5"),getattr(vt,"burden_va","---"),_ok_str(ok)))
+        _tbl(doc,["Elem","Barra","V prim","V sec","Classe","Burden(VA)","Result."],rows_vt,
+            widths=[Cm(1.4),Cm(1.8),Cm(2.5),Cm(2.0),Cm(2.0),Cm(2.5),Cm(3.8)])
+    else: _body(doc,"Resultados de TP nao disponiveis.",italic=True)
+    _h2(doc,"6.3","Disjuntores -- IEC 62271-100")
+    _tbl(doc,["Parametro","Criterio","Norma"],[
+        ("Corrente de interrupcao I_cu","I_cu >= Ik3_max na barra","IEC 62271-100 sec.4.101"),
+        ("Corrente de fechamento I_ma","I_ma >= ip_max = kappa x sqrt(2) x Ik3","IEC 62271-100 sec.4.106"),
+        ("Corrente nominal continua I_n","I_n >= 1,25 x I_carga_max","IEC 62271-100 sec.4.5"),
+    ],widths=[Cm(4.5),Cm(8.5),Cm(3.0)])
+    if breaker_results:
+        rows_br=[]
+        for br in breaker_results:
+            icc3=getattr(br,"icc_3ph_ka_bus",0.0) or 0.0; ip=getattr(br,"icc_peak_ka_bus",0.0) or 0.0
+            icu=getattr(br,"rated_sc_ka",0.0) or 0.0; ima=getattr(br,"rated_peak_ka",0.0) or 0.0
+            ok=(icu>=icc3) and (ima>=ip)
+            rows_br.append((getattr(br,"element_code","---"),getattr(br,"bus_name","---"),
+                f"{icc3:.3f}",f"{ip:.3f}",f"{icu:.1f}",f"{ima:.1f}",_ok_str(ok)))
+        _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","I_cu(kA)","I_ma(kA)","Result."],rows_br,
+            widths=[Cm(1.5),Cm(2.0),Cm(2.2),Cm(2.0),Cm(2.2),Cm(2.2),Cm(3.9)],
+            note="Aprovado: I_cu >= Ik3 E I_ma >= ip.")
+    else: _body(doc,"Resultados de disjuntores nao disponiveis.",italic=True)
+    _h2(doc,"6.4","Sintese do Dimensionamento por Barra")
+    if sc_results:
+        br_series=[6.3,8,10,12.5,16,20,25,31.5,40,50,63,80,100,125]
+        rows_syn=[]
+        for r in sc_results:
+            icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+            br_min=next((v for v in br_series if v>=icc3),icc3)
+            rows_syn.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
+                f"{icc3:.3f} kA",f"{ip:.3f} kA",f"I_cu >= {br_min:.1f} kA","5P20 ou sup."))
+        _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","Disj. min.","Classe TC"],rows_syn,
+            widths=[Cm(1.5),Cm(2.0),Cm(2.5),Cm(2.5),Cm(4.5),Cm(3.0)],
+            note="Disjuntor minimo = proximo valor serie comercial IEC 62271-100 >= Ik3.")
     _sp(doc,4)
-    # TP
-    _h2(doc,"6.2  Transformadores de Potencial — TP  (IEC 61869-3)")
-    _body(doc,"Tensão secundária padrão: 115 V. Classe de exatidão mínima: 3P.")
-    if vt:
-        _tbl(doc,["Elem.","Relação TP","Vprim (V)","Vsec (V)","Classe",
-                  "Sn (VA)","KTF","V (kV)","BIL (kV)","OK?"],
-             [[getattr(r,'element_code','—'),
-               getattr(r,'ratio_string','—'),
-               f"{getattr(r,'vp_v',0):.0f}",
-               f"{getattr(r,'vs_v',0):.0f}",
-               getattr(r,'accuracy_class','—'),
-               f"{getattr(r,'sn_vt_va',0):.0f}",
-               f"{getattr(r,'ktf_value',0):.2f}",
-               f"{getattr(r,'system_voltage_adopted_kv',0):.1f}",
-               f"{getattr(r,'bil_kv',0):.0f}",
-               "✓" if getattr(r,'burden_check_ok',False) else "✗"] for r in vt],
-             widths=[1.8,2.5,2.0,2.0,2.0,1.8,1.8,1.8,2.0,1.8])
-    else:
-        _body(doc,"Dados de TP não disponíveis.",italic=True)
-    _sp(doc,4)
-    # Disjuntores
-    _h2(doc,"6.3  Disjuntores  (IEC 62271-100)")
-    _body(doc,
-        "Critérios: corrente de ruptura ≥ I\"k3φ; corrente de fechamento ≥ ip; "
-        "corrente de curta duração suportável ≥ I\"k3φ durante o tempo tf.")
-    _eq(doc,
-        r"I_{ruptura} \geq I''_{k3\phi} \;;\quad I_{fech.} \geq i_p \;;\quad "
-        r"I_{csd} \geq I''_{k3\phi}",
-        fallback="Iruptura ≥ I\"k3φ  ;  Ifech ≥ ip  ;  Icsd ≥ I\"k3φ",
-        label="Eq. (9) — Critérios de dimensionamento do disjuntor",w=5.8)
-    if br:
-        _tbl(doc,["Elem.","Vnom (kV)","Inom (A)","Iruptura (kA)",
-                  "Ifech. (kA)","Icsd (kA)","tf (s)","Tipo","OK?"],
-             [[getattr(r,'element_code','—'),
-               f"{getattr(r,'voltage_class_kv',0):.1f}",
-               f"{getattr(r,'nominal_current_a',0):.0f}",
-               f"{getattr(r,'breaking_current_ka',0):.1f}",
-               f"{getattr(r,'making_current_ka',0):.1f}",
-               f"{getattr(r,'short_time_current_ka',0):.1f}",
-               f"{getattr(r,'short_time_duration_s',0):.1f}",
-               getattr(r,'device_type','—'),
-               "✓" if all([getattr(r,'voltage_ok',False),
-                            getattr(r,'current_ok',False),
-                            getattr(r,'breaking_ok',False)]) else "✗"] for r in br],
-             widths=[1.8,2.0,1.8,2.5,2.5,2.5,1.5,2.0,1.4])
-    else:
-        _body(doc,"Dados de disjuntores não disponíveis.",italic=True)
 
-# ── Seção 7: Coordenação ─────────────────────────────────────────────────────
-def _sec7(doc, relay, coord_b64=None):
-    _h1(doc,"7. COORDENAÇÃO E SELETIVIDADE DOS RELÉS")
-    _body(doc,
-        "A coordenação de proteção garante que o dispositivo mais próximo da falta atue "
-        "primeiro (seletividade), minimizando a extensão do desligamento. "
-        "Intervalo mínimo de coordenação entre relés consecutivos: Δt ≥ 0,25 s.")
-    _h2(doc,"7.1  Curva tempo-inverso — IEC 60255-151")
-    _eq(doc,
-        r"t_{op} = TMS \cdot \dfrac{K}{\left(\dfrac{I}{I_{p}}\right)^{\!\alpha} - 1}",
-        fallback="t = TMS · K / ((I/Ip)^α − 1)",
-        label="Eq. (10) — Tempo de operação do relé (EI: K = 80, α = 2)",w=4.5)
-    _tbl(doc,["Curva","K","α","Norma"],[
-        ("Normal Inversa (NI)",          "0,0515","0,02","IEC 60255-151"),
-        ("Muito Inversa (VI)",            "19,61","1,0", "IEC 60255-151"),
-        ("Extremamente Inversa (EI) &#12235;",  "80,0",  "2,0", "IEC 60255-151 — adotada SE"),
-        ("Longa Inversa (LI)",           "120,0","1,0", "IEC 60255-151"),
-        ("IEEE Ext. Inversa",           "28,2","2,0", "IEEE C37.112"),
-        ("IEEE CO8",                     "5,95","2,0", "IEEE C37.112"),
-    ],widths=[5.5,2.5,2.5,5.5],
-      note="Star = Curva padrão adotada neste estudo para proteção de alimentadores MT.")
-    _sp(doc,4)
-    _h2(doc,"7.2  Ajustes de relés por barra")
-    if relay:
-        _tbl(doc,["Elem.","Função","Ipickup (kA)","Isec (A)","TMS",
-                  "Curva","I\"k3φ ref (kA)","t @ Icc3 (s)","Sens."],
-             [[getattr(r,'element_code','—'),
-               getattr(r,'ansi_function','—'),
-               f"{getattr(r,'pickup_primary_ka',0):.4f}",
-               f"{getattr(r,'mpickup_secondary_a',0):.2f}",
-               f"{getattr(r,"tms_suggested",0):.3f}" if getattr(r,'tms_suggested',None) else "—",
-               getattr(r,'curve_type','—'),
-               f"{getattr(r,'icc_3ph_ka',0):.3f}",
-               f"{getattr(r,'t_at_icc_3ph_s',0):.3f}" if getattr(r,'t_at_icc_3ph_s',None) is not None else "—",
-               "✓" if getattr(r,'sensitivity_ok',False) else "✗"] for r in relay],
-             widths=[1.8,1.8,2.5,2.0,1.8,2.5,2.8,2.8,1.5])
-    else:
-        _body(doc,"Ajustes de relés não disponíveis. Execute o cálculo de proteçã.",italic=True)
-    _sp(doc,4)
-    _h2(doc,"7.3  Coordenograma — Curvas tempo × corrente")
-    if coord_b64:
+def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None):
+    _h1(doc,"7","COORDENACAO E SELETIVIDADE DOS RELES DE PROTECAO")
+    _body(doc,"A coordenacao garante que o dispositivo mais proximo ao ponto de falta atue primeiro (protecao primaria), e o dispositivo a montante atue so se o primeiro falhar (retaguarda).")
+    _h2(doc,"7.1","Criterios de Coordenacao  (IEC 60255)")
+    _tbl(doc,["Tipo de Rele","CTI minimo","Justificativa"],[
+        ("Eletromagnetico",">= 0,40 s","Tolerancia +/-7,5% + tempo de abertura do disjuntor (~100 ms)"),
+        ("Digital / Microprocesado",">=0,25 s","Tolerancia +/-5% + tempo de abertura (~60 ms) + margem"),
+        ("Numerico IED",">= 0,20 s","Tolerancia <= 1% + tempo de abertura <= 60 ms"),
+    ],widths=[Cm(4.0),Cm(2.5),Cm(9.5)],note="CTI = t_retaguarda - t_primaria. Adotado neste estudo: 0,30 s.")
+    _h2(doc,"7.2","Ajustes dos Reles por Barra")
+    if relay_results:
+        rows_r=[]
+        for relay in relay_results:
+            rows_r.append((getattr(relay,"element_code","---"),getattr(relay,"bus_name","---"),
+                getattr(relay,"relay_type","51"),getattr(relay,"curve_type","VI"),
+                f"{getattr(relay,'pickup_current_a',0.0):.1f} A",
+                f"{getattr(relay,'pickup_multiple',0.0):.2f} pu",
+                f"{getattr(relay,'time_multiplier',0.0):.3f}",
+                f"{getattr(relay,'inst_pickup_a',0.0):.1f} A"))
+        _tbl(doc,["Elem","Barra","Funcao","Curva","Pickup(A)","Pickup(pu)","TMS","Inst.(A)"],rows_r,
+            widths=[Cm(1.4),Cm(1.8),Cm(1.5),Cm(1.5),Cm(2.0),Cm(2.0),Cm(1.8),Cm(4.0)],
+            hbg=_C_AZUL_MED,note="Funcao ANSI: 51=sobrecorrente temporizado; 50=instantaneo; 67=direcional.")
+    else: _body(doc,"Nenhum resultado de rele disponivel.",italic=True)
+    _h2(doc,"7.3","Analise de Seletividade -- Margens CTI")
+    if relay_results and len(relay_results)>=2:
+        rows_cti=[]
+        for i in range(len(relay_results)-1):
+            rp=relay_results[i]; rr=relay_results[i+1]
+            tp=float(getattr(rp,"op_time_s",None) or getattr(rp,"time_dial",0.3))
+            tr=float(getattr(rr,"op_time_s",None) or getattr(rr,"time_dial",0.6))
+            cti=round(tr-tp,3); ok=cti>=0.20
+            rows_cti.append((getattr(rp,"element_code","---"),getattr(rr,"element_code","---"),
+                f"{getattr(rp,'icc_3ph_ka_bus',0):.3f} kA",
+                f"{tp:.3f} s",f"{tr:.3f} s",f"{cti:.3f} s","OK" if ok else "REVISAR"))
+        _tbl(doc,["Primaria","Retaguarda","Ik3 falta(kA)","t_prim(s)","t_ret(s)","CTI(s)","Coord."],rows_cti,
+            widths=[Cm(2.0),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.0),Cm(2.0)],
+            note="CTI >= 0,20 s: OK. CTI < 0,20 s: revisar TMS ou Pickup.")
+    else: _body(doc,"CTI nao disponivel (requer >= 2 reles configurados).",italic=True)
+    _h2(doc,"7.4","Coordenograma Tempo x Corrente")
+    _body(doc,"O coordenograma apresenta as curvas Tempo x Corrente (log-log) dos reles com as correntes de falta por barra. As curvas de inrush delimitam a zona proibida de atuacao:")
+    if coordenograma_b64:
+        import base64
         try:
-            img=io.BytesIO(base64.b64decode(coord_b64))
-            p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
-            p.add_run().add_picture(img,width=Inches(5.8))
-            pc=doc.add_paragraph(); pc.alignment=WD_ALIGN_PARAGRAPH.CENTER
-            rc=pc.add_run("Figura 1 - Coordenograma de proteção")
-            rc.font.name="Arial"; rc.font.size=Pt(8); rc.italic=True; rc.font.color.rgb=_BK_GRAY
-        except:
-            _body(doc,"[Coordenograma: erro ao inserir imagem]",italic=True)
-    else:
-        _body(doc,
-            "[Coordenograma não disponível - execute o cálculo completo para gerar este gráfico.]",
-            italic=True,size=9)
+            img_bytes=base64.b64decode(coordenograma_b64)
+            doc.add_picture(io.BytesIO(img_bytes),width=Cm(14.0))
+            last=doc.paragraphs[-1]; last.alignment=WD_ALIGN_PARAGRAPH.CENTER
+            pl=doc.add_paragraph(); pl.alignment=WD_ALIGN_PARAGRAPH.CENTER
+            rl=pl.add_run("Figura 1 -- Coordenograma Tempo x Corrente (escala log-log)")
+            rl.italic=True; rl.font.size=Pt(9); rl.font.color.rgb=RGBColor.from_string(_C_CINZA)
+        except Exception as exc: _body(doc,f"[Erro ao inserir coordenograma: {exc}]",italic=True)
+    else: _body(doc,"Coordenograma nao disponivel. Execute o calculo completo.",italic=True)
+    _sp(doc,4)
 
-# ── Seção 8: Conclusões ──────────────────────────────────────────────────────
-def _sec8(doc, sc, relay, br):
-    _h1(doc,"8. CONCLUS[�ES")
-    icc_max=max((getattr(r,'icc_3ph_ka',0) for r in sc),default=0.0) if sc else 0.0
-    rel_ok=all(getattr(r,'sensitivity_ok',False) for r in relay) if relay else None
-    br_ok=all(getattr(r,'voltage_ok',False) and getattr(r, 'current_ok',False)
-              and getattr(r,'breaking_ok',False) for r in br) if br else None
-    _body(doc,
-        "O presente estudo foi elaborado conforme a norma IEC 60909:2016, "
-        "utilizando o método das componentes simétricas e varredura BFS da rede radial "
-        "para cálculo das correntes de curto-circuito trifásico, bifásico e monofásico.")
-    if icc_max>0:
-        _body(doc,
-            f"A corrente de curto-circuito trifásica máxima calculada é de {icc_max:.3f} kA, "
-            f"utilizada como referência para dimensionamento dos equipamentos de proteção ")
-    if rel_ok is True:
-        _body(doc,
-            "Todos os relés de proteção apresentam sensibilidade adequada ao menor defeito "
-            "previsível, com relação de sensibilidade >= 1,5.")
-    elif rel_ok is False:
-        _body(doc,
-            "ATENCAO: Alguns relés não atingem a relação de sensibilidade minima. "
-            "Revise os ajustes ou verifique os dados de impedância dos elementos.",bold=True)
-    if br_ok is True:
-        _body(doc,
-            "Todos os disjuntores selecionados atendem aos requisitos de tensão, corrente "
-            "e capacidade de ruptura conforme IEC 62271-100.")
-    _body(doc,
-        "Os ajustes calculados garantem seletividade com Deltat >= 0,25 s entre zonas de proteção "
-        "consecutivas, minimizando a extensão de eventuais desligamentos.")
-
-# ── Seção 9: Referências ─────────────────────────────────────────────────────
-def _sec9(doc):
-    _h1(doc,"9. REFERENCIAS BIBLIOGRAFICAS")
-    refs=[
-        "[1]  IEC 60909:2016 - Short-circuit currents in three-phase a.c. systems. IEC, Geneva, 2016.",
-        "[2]  IEC 61869-2:2012 - Instrument transformers - Additional requirements for CTs. IEC, 2012.",
-        "[3]  IEC 62271-100:2021 - High-voltage switchgear - AC circuit-breakers. IEC, 2021.",
-        "[4]  IEC 60255-151:2009 - Over/under-current protection - Functional requirements. IEC, 2009.",
-        "[5]  KINDERMANN, G. Curto-Circuito. 2. ed. Florianopolis: UFSC, 1997.",
-        "[6]  MAMEDE FILHO, J. Manual de Equipamentos Eletricos. 4. ed. Rio de Janeiro: LTC, 2013.",
-        "[7]  STEVENSON JR., W. D. Elementos de Analise de Sistemas de Potencia. Sao Paulo: McGraw-Hill, 1986.",
-        "[8]  WARRINGTON, A. R. van C. Protective Relays. 3. ed. London: Chapman & Hall, 1978.",
+def _sec8(doc, sc_results, relay_results, system=None):
+    _h1(doc,"8","VERIFICACAO DE REQUISITOS DA CONCESSIONARIA")
+    _body(doc,"Verificacao dos requisitos minimos exigidos pela concessionaria distribuidora para aprovacao do projeto de conexao, conforme PRODIST Modulo 3 e norma tecnica da distribuidora.")
+    c_factor=getattr(system,"voltage_factor_c",1.10) if system else 1.10
+    icc_max=max((getattr(r,"icc_3ph_ka",0.0) or 0.0 for r in (sc_results or [])),default=0.0)
+    itens=[
+        ("Nivel de curto informado pela concessionaria","Scc conforme dados de entrada","Conforme" if icc_max>0 else "Pendente"),
+        (f"Fator de tensao c = 1,10  (IEC 60909 Tab.1)",f"c adotado = {c_factor:.2f}","Conforme" if abs(c_factor-1.10)<0.01 else "Verificar"),
+        ("Corrente de falta minima detectavel pelo rele  (Imin > 1,5 x Ip)","Verificar Pickup <= Ik_min / 1,5","A verificar" if not relay_results else "Ver Secao 7.2"),
+        ("Seletividade -- CTI >= 0,20 s entre primaria e retaguarda","Ver Tabela CTI na Secao 7.3","A verificar" if not relay_results else "Ver Secao 7.3"),
+        ("Protecao de minima tensao (27) no ponto de conexao","Rele de sub/sobretensao conforme NT distribuidora","A verificar"),
+        ("Protecao de falta a terra (51N / 67N)","Rele de sobrecorrente de sequencia zero","Configurado" if relay_results else "A verificar"),
+        ("Disjuntor com I_cu >= Ik3_max",f"Ik3_max = {icc_max:.3f} kA","Ver Secao 6.3"),
+        ("Memorial de calculo com equacoes e memoria numerica","Apresentado nas Secoes 3, 5 e 6","Conforme"),
+        ("Coordenograma Tempo x Corrente (escala log-log)","Apresentado na Secao 7.4","Conforme"),
     ]
-    for ref in refs:
-        p=doc.add_paragraph(); p.paragraph_format.space_after=Pt(4)
-        p.paragraph_format.left_indent=Cm(0.5); p.paragraph_format.first_line_indent=Cm(-0.5)
-        r=p.add_run(ref); r.font.name="Arial"; r.font.size=Pt(9)
+    _tbl(doc,["Requisito","Atendimento / Referencia","Status"],itens,
+        widths=[Cm(7.0),Cm(6.0),Cm(3.0)],
+        note="'A verificar' indica dependencia de dados especificos da concessionaria ou configuracao do rele nao inserida.")
+    _nota(doc,"Em caso de revisao do projeto, todos os calculos devem ser refeitos e o presente relatorio reeditado com nova revisao e assinatura.")
+    _sp(doc,4)
+
+def _sec9(doc, sc_results=None, relay_results=None):
+    _h1(doc,"9","CONCLUSAO E RECOMENDACOES")
+    if sc_results:
+        icc3_vals=[getattr(r,"icc_3ph_ka",0.0) or 0.0 for r in sc_results]
+        ip_vals=[getattr(r,"icc_peak_ka",0.0) or 0.0 for r in sc_results]
+        icc_max=max(icc3_vals,default=0.0); icc_min=min(icc3_vals,default=0.0)
+        ip_max=max(ip_vals,default=0.0); n_barras=len(sc_results)
+    else: icc_max=icc_min=ip_max=0.0; n_barras=0
+    _body(doc,"O presente estudo de protecao e coordenacao foi elaborado em conformidade com a norma IEC 60909:2016 para calculo de curtos-circuitos, e com a IEC 60255-151 para definicao dos ajustes dos reles de protecao.")
+    if n_barras>0:
+        _body(doc,f"Foram calculadas as correntes de curto-circuito em {n_barras} barra(s). Corrente trifasica maxima: {icc_max:.3f} kA; minima: {icc_min:.3f} kA; pico maximo: {ip_max:.3f} kA.")
+    _h2(doc,"9.1","Recomendacoes Tecnicas")
+    for rec in [
+        "Todos os disjuntores devem ter I_cu >= corrente de curto trifasica maxima na barra de instalacao, conforme calculado na Secao 5.",
+        "Os TCs de protecao devem ser de classe 5P com ALF suficiente para nao saturar nas correntes de falta calculadas (ver criterios Secao 6.1).",
+        "Os ajustes dos reles devem ser inseridos nos equipamentos por engenheiro eletricista habilitado e verificados em comissionamento por injecao secundaria.",
+        "O coordenograma deve ser validado em campo apos o comissionamento, com injecao de corrente secundaria nos TCs e verificacao dos tempos de atuacao.",
+        "Em casode ampliacao ou alteracao da rede, este estudo deve ser reavaliado e nova revisao emitida antes da energizacao.",
+        "Recomenda-se a instalacao de registrador de perturbacoes (DFR / oscilografo) para registro e analise de eventos de falta.",
+    ]:
+        p=doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(2)
+        p.paragraph_format.left_indent=Cm(0.8)
+        run=p.add_run(rec); run.font.size=Pt(10); run.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    _sp(doc,4)
+
+def _sec10(doc, info):
+    _h1(doc,"10","RESPONSAVEL TECNICO")
+    _tbl(doc,["Campo","Informacao"],[
+        ("Responsavel Tecnico",info.get("engenheiro","Engenheiro Responsavel")),
+        ("CREA / CFE",info.get("crea","CREA-XX / XXXXXX-D")),
+        ("Empresa",info.get("empresa","BK Engenharia e Tecnologia")),
+        ("Cargo",info.get("cargo","Engenheiro Eletrici Sta Senior")),
+        ("Telefone",info.get("telefone","---")),
+        ("E-mail",info.get("email","---")),
+        ("Data da Emissao",info.get("data",datetime.date.today().strftime("%d/%m/%Y"))),
+        ("Revisao",info.get("revisao","00")),
+    ],widths=[Cm(5.5),Cm(10.5)],hbg=_C_AZUL_ESC)
+    _sp(doc,20); _hline(doc,color=_C_AZUL_ESC,sz="6",before=40,after=4)
+    p_nome=doc.add_paragraph(); p_nome.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    r=p_nome.add_run(info.get("engenheiro","Engenheiro Responsavel"))
+    r.bold=True; r.font.size=Pt(11); r.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+    p_crea=doc.add_paragraph(); p_crea.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    rc=p_crea.add_run(f"{info.get('crea','CREA-XX / XXXXXX-D')}  --  Engenheiro Eletricista")
+    rc.font.size=Pt(10); rc.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    _sp(doc,8)
+    _nota(doc,"Este documento e de responsabilidade exclusiva do profissional habilitado indicado acima, nos termos da Lei 5.194/66 e Resolucao CONFEA 1048/2013.")
 
 def gerar_relatorio_protecao(
-    study_info: dict,
-    system: Any,
-    elements: list,
-    sc_results=None,
-    ct_results=None,
-    vt_results=None,
-    breaker_results=None,
-    relay_results=None,
-    coordenograma_b64: str=None,
+    study_info: dict, system: Any, elements: list,
+    sc_results=None, ct_results=None, vt_results=None,
+    breaker_results=None, relay_results=None,
+    coordenograma_b64: str = None,
 ) -> io.BytesIO:
+    """
+    Gera o Relatorio Tecnico de Estudo de Protecao em formato Word (.docx).
+    Parametros: study_info (dict), system, elements, sc_results, ct_results,
+    vt_results, breaker_results, relay_results, coordenograma_b64.
+    Retorno: io.BytesIO com o arquivo .docx pronto para download.
+    """
     doc=Document()
-    _setup_hf(doc,study_info.get("projeto","Estudo de Protecao"),
-              study_info.get("doc_code","BK-EP-001"))
+    proj=study_info.get("projeto","Estudo de Protecao")
+    code=study_info.get("doc_code","BK-EP-001")
+    rev=study_info.get("revisao","00")
     c_factor=getattr(system,"voltage_factor_c",study_info.get("voltage_factor_c",1.10))
+    doc.styles["Normal"].font.name="Calibri"
+    doc.styles["Normal"].font.size=Pt(10)
+    doc.styles["Normal"].font.color.rgb=RGBColor.from_string(_C_CINZA)
+    _setup_hf(doc,proj,code,rev)
     _capa(doc,study_info)
     _sec1(doc,study_info)
     _sec2(doc)
     _sec3(doc,c_factor)
-    _sec4(doc,system,elements)
-    _sec5(doc,sc_results or [])
-    _sec6(doc,ct_results or [],vt_results or [],breaker_results or [])
-    _sec7(doc,relay_results or [],coordenograma_b64)
-    _sec8(doc,sc_results or [],relay_results or [],breaker_results or [])
-    _sec9(doc)
+    _sec4(doc,system,elements or [])
+    _sec5(doc,sc_results or [],system)
+    _sec6(doc,ct_results or [],vt_results or [],breaker_results or [],sc_results or [])
+    _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [])
+    _sec8(doc,sc_results or [],relay_results or [],system)
+    _sec9(doc,sc_results or [],relay_results or [])
+    _sec10(doc,study_info)
     buf=io.BytesIO(); doc.save(buf); buf.seek(0)
     return buf
