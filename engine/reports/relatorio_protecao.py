@@ -194,6 +194,24 @@ def EQ_ALF():
         '<m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
         '<m:t xml:space="preserve">I n1 [A]</m:t></m:r></m:den></m:f></m:oMath>')
 
+
+def EQ_ICC2E():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I E = 3 &#x22C5; I a0 = </m:t></m:r><m:f><m:num>'
+        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e><m:r><m:t>3</m:t></m:r></m:e></m:rad>'
+        '<m:r><m:t xml:space="preserve"> &#x22C5; c &#x22C5; Vn &#x22C5; |Z2|</m:t></m:r></m:num><m:den>'
+        '<m:r><m:t xml:space="preserve">|Z1 + Z2&#x2225;Z0| &#x22C5; |Z2 + Z0|</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
+def EQ_ICC2E_FASE():
+    return (f'<m:oMath xmlns:m="{_MNS}"><m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">I a1 = </m:t></m:r><m:f><m:num>'
+        '<m:r><m:rPr><m:sty m:val="i"/></m:rPr>'
+        '<m:t xml:space="preserve">c &#x22C5; Vn / </m:t></m:r>'
+        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e><m:r><m:t>3</m:t></m:r></m:e></m:rad>'
+        '</m:num><m:den><m:r><m:t xml:space="preserve">Z1 + Z2 &#x22C5; Z0 / (Z2 + Z0)</m:t></m:r>'
+        '</m:den></m:f></m:oMath>')
+
 def _tbl(doc, headers, rows, widths=None, note="", hbg=_C_AZUL_MED):
     n = len(headers)
     if not widths: widths = [Cm(16.0/n)]*n
@@ -343,7 +361,14 @@ def _sec3(doc, c_factor=1.10):
     _body(doc,"Corrente de pico (componente assincrona maxima):",bold=True,size=10)
     _omml_block(doc,EQ_IP(),label="3.9")
     _omml_block(doc,EQ_KAPPA(),label="3.10")
-    _nota(doc,"Todas as correntes calculadas sao correntes simetricas iniciais (I''k), sem decaimento temporal.")
+    _body(doc,"Falta bifasica-terra (dois polos com terra — 2LG):",bold=True,size=10)
+    _body(doc,"Corrente de sequencia positiva:",italic=True,size=9)
+    _omml_block(doc,EQ_ICC2E_FASE(),label="3.11")
+    _body(doc,"Corrente de terra total IE = 3 x |Ia0|:",italic=True,size=9)
+    _omml_block(doc,EQ_ICC2E(),label="3.12")
+    _body(doc,"Onde: Z2//Z0 = Z2 x Z0 / (Z2 + Z0) = paralelo entre seq. negativa e zero.",size=9,italic=True)
+    _nota(doc,"Todas as correntes calculadas sao correntes simetricas iniciais (I''k), sem decaimento temporal. "
+          "Sequencia negativa Z2 = Z1 para elementos passivos (linhas, cabos, trafos) per IEC 60909 Tab. 3.")
     _sp(doc,4)
 
 def _sec4(doc, system, elements):
@@ -402,57 +427,95 @@ def _sec5(doc, sc_results, system=None):
     rows_z=[]
     for r in sc_results:
         z1=getattr(r,"z1_ohm",0j) or 0j; z0=getattr(r,"z0_ohm",None)
-        z1_mag=abs(z1); z0_mag=abs(z0) if z0 is not None else None
+        z2=getattr(r,"z2_ohm",None)
+        if z2 is None: z2=z1   # Z2=Z1 para elementos passivos (IEC 60909 Tab. 3)
+        z1_mag=abs(z1); z0_mag=abs(z0) if z0 is not None else None; z2_mag=abs(z2)
         xr_val=z1.imag/z1.real if z1.real>1e-9 else 0.0
         kappa=getattr(r,"kappa_factor",0.0) or 0.0
         rows_z.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
             f"{z1.real:.5f}",f"{z1.imag:.5f}",f"{z1_mag:.5f}",
+            f"{z2.real:.5f}",f"{z2.imag:.5f}",f"{z2_mag:.5f}",
             f"{z0.real:.5f}" if z0 is not None else "---",
             f"{z0.imag:.5f}" if z0 is not None else "---",
-            f"{z0_mag:.5f}" if z0_mag is not None else "INF",
+            f"{z0_mag:.5f}" if z0_mag is not None else "INF (bloq.)",
             f"{xr_val:.2f}",f"{kappa:.3f}"))
-    _tbl(doc,["Elem","Barra","R1(Ohm)","X1(Ohm)","|Z1|(Ohm)","R0(Ohm)","X0(Ohm)","|Z0|(Ohm)","X/R","kappa"],rows_z,
-        widths=[Cm(1.4),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.6),Cm(1.6),Cm(1.6),Cm(1.2),Cm(1.4)],
-        hbg=_C_AZUL_MED,note="Z0=INF indica sequencia zero bloqueada (trafo Yg-D em serie).")
+        _tbl(doc,["Elem","Barra","R1(Ω)","X1(Ω)","|Z1|(Ω)","R2(Ω)","X2(Ω)","|Z2|(Ω)","R0(Ω)","X0(Ω)","|Z0|(Ω)","X/R","κ"],rows_z,
+        widths=[Cm(1.2),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.3),Cm(1.3),Cm(1.7),Cm(1.0),Cm(1.0)],
+        hbg=_C_AZUL_MED,note="Z2=Z1 para elementos passivos (linhas, cabos, trafos) per IEC 60909 Tab. 3. Z0=INF: seq. zero bloqueada por trafo Yg-D em serie.")
     _h2(doc,"5.2","Correntes de Curto-Circuito por Barra")
     rows_i=[]
     for r in sc_results:
-        icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
-        icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
-        k=getattr(r,"kappa_factor",0.0) or 0.0; bt=getattr(r,"icc_3ph_lv_ka",0.0) or 0.0
+        icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0
+        icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
+        icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0
+        icc2e=getattr(r,"icc_2ph_ground_ka",0.0) or 0.0
+        ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+        k=getattr(r,"kappa_factor",0.0) or 0.0
+        bt=getattr(r,"icc_3ph_lv_ka",0.0) or 0.0
         rows_i.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
-            f"{icc3:.3f}",f"{icc2:.3f}",f"{icc1:.3f}" if icc1>0 else "BLOQ.",
+            f"{icc3:.3f}",f"{icc2:.3f}",
+            f"{icc2e:.3f}" if icc2e>0 else "BLOQ.",
+            f"{icc1:.3f}" if icc1>0 else "BLOQ.",
             f"{ip:.3f}",f"{k:.3f}",f"{bt:.3f}" if bt>0 else "---"))
-    _tbl(doc,["Elem","Barra","Ik3(kA)","Ik2(kA)","Ik1(kA)","ip(kA)","kappa","Ik3-BT(kA)"],rows_i,
-        widths=[Cm(1.4),Cm(1.8),Cm(2.0),Cm(2.0),Cm(2.0),Cm(2.0),Cm(1.6),Cm(2.2)],
-        hbg=_C_AZUL_MED,note="BLOQ. = sequencia zero bloqueada. Ik3-BT = corrente no secundario do trafo.")
+    _tbl(doc,["Elem","Barra","Ik3φ (kA)","Ik2φ (kA)","IE_2LG (kA)","Ik1φ (kA)","ip (kA)","κ","Ik3-BT (kA)"],rows_i,
+        widths=[Cm(1.3),Cm(1.6),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.0),Cm(2.1)],
+        hbg=_C_AZUL_MED,
+        note="Ik3φ=trifásico; Ik2φ=bifásico (fase-fase); IE_2LG=corrente de terra na falta bifásica-terra (IEC 60909 eq.55-56); "
+             "Ik1φ=monofásico (fase-terra); ip=pico assimétrico; BLOQ.=seq. zero bloqueada por trafo Yg-D.")
     _h2(doc,"5.3","Memoria de Calculo -- Substituicao Numerica por Barra")
     _body(doc,"Para cada barra apresenta-se a memoria de calculo com substituicao numerica completa nas equacoes IEC 60909:")
     for r in sc_results:
         ec=getattr(r,"element_code","?"); bn=getattr(r,"bus_name","?")
-        z1=getattr(r,"z1_ohm",0j) or 0j; z0=getattr(r,"z0_ohm",None)
+        z1=getattr(r,"z1_ohm",0j) or 0j
+        z0_raw=getattr(r,"z0_ohm",None)
+        z0 = z0_raw if (z0_raw is not None and abs(z0_raw)>1e-12) else None
         icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
         icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
-        k=getattr(r,"kappa_factor",0.0) or 0.0; z1m=abs(z1)
+        k=getattr(r,"kappa_factor",0.0) or 0.0; z1m=abs(z1); v=getattr(r,"voltage_kv",13.8) or 13.8
         xr=z1.imag/z1.real if z1.real>1e-9 else 0.0; warns=getattr(r,"warnings",[]) or []
         ps=doc.add_paragraph(); ps.paragraph_format.space_before=Pt(8)
         ps.paragraph_format.space_after=Pt(2); ps.paragraph_format.left_indent=Cm(0.3)
         rs=ps.add_run(f"Barra {bn}  ({ec})")
         rs.bold=True; rs.font.size=Pt(10); rs.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
+        z0_val=getattr(r,"z0_ohm",None)
+        z2_val=getattr(r,"z2_ohm",None)
+        if z2_val is None: z2_val=z1   # Z2=Z1 para elementos passivos
+        z2m=abs(z2_val)
+        icc2e=getattr(r,"icc_2ph_ground_ka",0.0) or 0.0
         mem=[
-            ("Z1 acumulada",f"({z1.real:.6f} + j{z1.imag:.6f}) Ohm"),
-            ("|Z1|",f"sqrt({z1.real:.6f}^2 + {z1.imag:.6f}^2) = {z1m:.6f} Ohm"),
+            ("Z1 acum. (seq. positiva)",f"({z1.real:.6f} + j{z1.imag:.6f}) Ohm  |  |Z1| = {z1m:.6f} Ohm"),
+            ("Z2 acum. (seq. negativa)",f"({z2_val.real:.6f} + j{z2_val.imag:.6f}) Ohm  |  |Z2| = {z2m:.6f} Ohm  [Z2=Z1 para rede passiva]"),
+            ("Z0 acum. (seq. zero)",
+             f"({z0.real:.6f} + j{z0.imag:.6f}) Ohm  |  |Z0| = {abs(z0):.6f} Ohm" if z0 is not None else "INF - seq. zero bloqueada (trafo Yg-D em serie)"),
             ("X/R",f"{xr:.4f}"),
-            ("kappa = 1,02 + 0,98 x exp(-3 x R/X)",f"= {k:.4f}"),
-            ("Ik3 = c x Vn / (sqrt(3) x |Z1|)",f"= {c:.2f} x Vn / (1,7321 x {z1m:.6f}) = {icc3:.3f} kA"),
-            ("Ik2 = (sqrt(3)/2) x Ik3",f"= 0,8660 x {icc3:.3f} = {icc2:.3f} kA"),
+            ("κ = 1,02 + 0,98 × e^(−3×R/X)",f"= 1.02 + 0.98 x exp(−3 x R/X = −3 x {(1/xr if xr>0 else 0):.4f}) = {k:.4f}"),
+            ("--- Correntes de Curto ---","" ),
+            ("I''k3 = c x Vn / (sqrt(3) x |Z1|)  [IEC 60909 eq.29]",
+             f"= {c:.2f}×Vn / (1,73205×{z1m:.6f}) = {icc3:.3f} kA"),
+            ("I''k2 = (sqrt(3)/2) x I''k3  [IEC 60909 eq.45]",
+             f"= 0,86603×{icc3:.3f} = {icc2:.3f} kA"),
         ]
-        if z0 is not None and icc1>0:
-            z_den=abs(2*z1+z0)
-            mem.append(("Ik1 = sqrt(3) x c x Vn / |2Z1 + Z0|",f"= 1,7321 x {c:.2f} x Vn / {z_den:.6f} = {icc1:.3f} kA"))
+        # Ik2E (bifásica-terra)
+        if z0 is not None and abs(z2_val+z0)>1e-9:
+            z_par_2e = (z2_val*z0)/(z2_val+z0)
+            z_tot_2e = z1+z_par_2e
+            ia1_2e = (c*v/math.sqrt(3))/abs(z_tot_2e) if abs(z_tot_2e)>1e-9 else 0.0
+            ia0_2e = ia1_2e*abs(z2_val)/abs(z2_val+z0)
+            mem.append(("Ia1_2LG = (c x Vn/sqrt(3)) / (Z1+Z2//Z0)  [IEC 60909 eq.54]",
+                         f"|Z2//Z0|={abs(z_par_2e):.6f} Ohm  |  |Z1+Z2//Z0|={abs(z_tot_2e):.6f} Ohm  |  Ia1={ia1_2e:.3f} kA"))
+            mem.append(("IE_2LG = 3 x |Ia0| = 3 x |Ia1| x |Z2|/|Z2+Z0|  [IEC 60909 eq.56]",
+                         f"= 3 x {ia1_2e:.3f} x {abs(z2_val):.6f} / {abs(z2_val+z0):.6f} = {icc2e:.3f} kA"))
         else:
-            mem.append(("Ik1","BLOQUEADA -- Z0 = INF (trafo Yg-D em serie)"))
-        mem.append(("ip = kappa x sqrt(2) x Ik3",f"= {k:.4f} x 1,4142 x {icc3:.3f} = {ip:.3f} kA"))
+            mem.append(("IE_2LG (falta bifasica-terra)","BLOQUEADA — Z0=INF (trafo Yg-D em série)"))
+        # Ik1 (monofásica)
+        if z0 is not None and icc1>0:
+            z_den=abs(z1+z2_val+z0)
+            mem.append(("Ik1 = sqrt(3) x c x Vn / |Z1+Z2+Z0|  [IEC 60909 eq.52]",
+                         f"|Z1+Z2+Z0|={z_den:.6f} Ohm  =  {icc1:.3f} kA"))
+        else:
+            mem.append(("Ik1 (falta monofasica fase-terra)","BLOQUEADA — Z0=INF (trafo Yg-D em série)"))
+        mem.append(("ip = kappa x sqrt(2) x Ik3  [IEC 60909 eq.74]",
+                     f"= {k:.4f} x 1.41421 x {icc3:.3f} = {ip:.3f} kA"))
         for w in warns: mem.append(("Obs.",str(w)))
         _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)

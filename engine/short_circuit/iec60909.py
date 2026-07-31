@@ -437,6 +437,42 @@ def _calc_icc_2f(icc3: float) -> float:
     return round((math.sqrt(3) / 2.0) * icc3, 4)
 
 
+
+
+def _calc_icc_2f_ground(
+    v_kv: float,
+    z1: complex,
+    z2: complex,
+    z0: Optional[complex],
+    c: float,
+) -> float:
+    """
+    I"k2E — falta bifásica-terra (2LG) — IEC 60909:2016, eqs. 54-56.
+
+    Método das componentes simétricas para falta entre duas fases e a terra:
+        Ia1 = (c × Vn / √3) / (Z1 + Z2·Z0/(Z2+Z0))
+        Ia0 = −Ia1 × Z2 / (Z2 + Z0)
+        IE  = 3 × Ia0   (corrente de terra total)
+
+    Retorna |IE| = 3 × |Ia0| [kA].
+    Retorna 0.0 se Z0 = None (falta bloqueada por trafo Yg-D em série).
+
+    Nota: para redes com Z2 = Z1 e Z0 ≤ Z1 (típico de linhas aéreas),
+    I"k2E ≥ I"k2 e pode superar I"k3 em circuitos de alta impedância de zero.
+    """
+    if z0 is None or abs(z2 + z0) < 1e-12:
+        return 0.0
+    vn_ph = (c * v_kv) / math.sqrt(3)          # tensão de fase [kV]
+    z_par = (z2 * z0) / (z2 + z0)              # Z2 // Z0 [Ω]
+    z_total = z1 + z_par                        # impedância total de seq. positiva
+    mag_total = abs(z_total)
+    if mag_total < 1e-12:
+        return 0.0
+    ia1_mag = vn_ph / mag_total                 # |Ia1| [kA]
+    ia0_mag = ia1_mag * abs(z2) / abs(z2 + z0) # |Ia0| [kA]
+    ie = 3.0 * ia0_mag                          # |IE| = corrente de terra total [kA]
+    return round(ie, 4)
+
 def _calc_icc_1f(
     v_kv: float,
     z1: complex,
@@ -682,7 +718,8 @@ class IEC60909Calculator:
                     z0_ohm=z_for_icc.z0 if z_for_icc.z0 is not None else complex(0, 0),
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2,
                     icc_1ph_ka=icc1 if icc1 is not None else 0.0,
-                    icc_2ph_ground_ka=0.0, icc_peak_ka=ip,
+                    icc_2ph_ground_ka=_calc_icc_2f_ground(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, c),
+                    icc_peak_ka=ip,
                     kappa_factor=kappa, icc_3ph_lv_ka=icc3_lv, is_valid=True,
                 ))
                 # Resultado explícito no lado BT para transformadores
@@ -700,7 +737,8 @@ class IEC60909Calculator:
                             z0_ohm=_zbt.z0 if _zbt.z0 is not None else complex(0, 0),
                             icc_3ph_ka=_i3bt, icc_2ph_ka=_i2bt,
                             icc_1ph_ka=_i1bt if _i1bt is not None else 0.0,
-                            icc_2ph_ground_ka=0.0, icc_peak_ka=_ipbt,
+                            icc_2ph_ground_ka=_calc_icc_2f_ground(v_sec, _zbt.z1, _zbt.z2, _zbt.z0, c),
+                            icc_peak_ka=_ipbt,
                             kappa_factor=_kbt, icc_3ph_lv_ka=0.0, is_valid=True,
                             warnings=[f"Secundario BT ({v_sec:.3f} kV) do trafo {elem.code}"],
                         ))
