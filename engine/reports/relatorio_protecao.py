@@ -418,6 +418,17 @@ def _sec4(doc, system, elements):
     _sp(doc,4)
 
 def _sec5(doc, sc_results, system=None):
+    # ── Correção (relatório "Z zeradas") ────────────────────────────────────
+    # `sc_results` é uma lista de app.calculations.schemas.ElementResult
+    # (Pydantic) — NÃO tem os atributos "z1_ohm"/"z0_ohm"/"z2_ohm"/"bus_name"
+    # usados anteriormente (esses existem apenas no dataclass interno do
+    # motor, CalculatorResult). Os nomes reais são z1_r_ohm/z1_x_ohm/
+    # z1_mag_ohm, z2_r_ohm/z2_x_ohm/z2_mag_ohm, z0_r_ohm/z0_x_ohm/z0_blocked,
+    # e a barra é bus_to (não "bus_name"). Como getattr() com um nome
+    # inexistente sempre retornava o valor-default (0.0 / 0j / "---"), TODAS
+    # as impedâncias e barras saíam zeradas/genéricas — origem do problema
+    # relatado. Z2 agora é o valor REAL calculado pelo motor (não uma
+    # aproximação Z2=Z1 aplicada apenas na exibição).
     _h1(doc,"5","RESULTADOS -- IMPEDANCIAS POR BARRA E CORRENTES DE CURTO-CIRCUITO")
     c=getattr(system,"voltage_factor_c",1.10) if system else 1.10
     if not sc_results:
@@ -426,23 +437,28 @@ def _sec5(doc, sc_results, system=None):
     _body(doc,"Impedancias de sequencia acumuladas desde a fonte ate cada barra pelo processo BFS:")
     rows_z=[]
     for r in sc_results:
-        z1=getattr(r,"z1_ohm",0j) or 0j; z0=getattr(r,"z0_ohm",None)
-        z2=getattr(r,"z2_ohm",None)
-        if z2 is None: z2=z1   # Z2=Z1 para elementos passivos (IEC 60909 Tab. 3)
-        z1_mag=abs(z1); z0_mag=abs(z0) if z0 is not None else None; z2_mag=abs(z2)
-        xr_val=z1.imag/z1.real if z1.real>1e-9 else 0.0
+        z1r=getattr(r,"z1_r_ohm",0.0) or 0.0; z1x=getattr(r,"z1_x_ohm",0.0) or 0.0
+        z2r=getattr(r,"z2_r_ohm",0.0) or 0.0; z2x=getattr(r,"z2_x_ohm",0.0) or 0.0
+        z0r=getattr(r,"z0_r_ohm",0.0) or 0.0; z0x=getattr(r,"z0_x_ohm",0.0) or 0.0
+        z0_blocked=bool(getattr(r,"z0_blocked",False))
+        z1_mag=getattr(r,"z1_mag_ohm",0.0) or math.hypot(z1r,z1x)
+        z2_mag=getattr(r,"z2_mag_ohm",0.0) or math.hypot(z2r,z2x)
+        z0_mag=math.hypot(z0r,z0x) if not z0_blocked else None
+        xr_val=(z1x/z1r) if z1r>1e-9 else 0.0
         kappa=getattr(r,"kappa_factor",0.0) or 0.0
-        rows_z.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
-            f"{z1.real:.5f}",f"{z1.imag:.5f}",f"{z1_mag:.5f}",
-            f"{z2.real:.5f}",f"{z2.imag:.5f}",f"{z2_mag:.5f}",
-            f"{z0.real:.5f}" if z0 is not None else "---",
-            f"{z0.imag:.5f}" if z0 is not None else "---",
+        bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+        rows_z.append((getattr(r,"element_code","---"),bus_disp,
+            f"{z1r:.5f}",f"{z1x:.5f}",f"{z1_mag:.5f}",
+            f"{z2r:.5f}",f"{z2x:.5f}",f"{z2_mag:.5f}",
+            f"{z0r:.5f}" if not z0_blocked else "---",
+            f"{z0x:.5f}" if not z0_blocked else "---",
             f"{z0_mag:.5f}" if z0_mag is not None else "INF (bloq.)",
             f"{xr_val:.2f}",f"{kappa:.3f}"))
-        _tbl(doc,["Elem","Barra","R1(Ω)","X1(Ω)","|Z1|(Ω)","R2(Ω)","X2(Ω)","|Z2|(Ω)","R0(Ω)","X0(Ω)","|Z0|(Ω)","X/R","κ"],rows_z,
+    _tbl(doc,["Elem","Barra","R1(Ω)","X1(Ω)","|Z1|(Ω)","R2(Ω)","X2(Ω)","|Z2|(Ω)","R0(Ω)","X0(Ω)","|Z0|(Ω)","X/R","κ"],rows_z,
         widths=[Cm(1.2),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.5),Cm(1.3),Cm(1.3),Cm(1.7),Cm(1.0),Cm(1.0)],
-        hbg=_C_AZUL_MED,note="Z2=Z1 para elementos passivos (linhas, cabos, trafos) per IEC 60909 Tab. 3. Z0=INF: seq. zero bloqueada por trafo Yg-D em serie.")
-    _h2(doc,"5.2","Correntes de Curto-Circuito por Barra")
+        hbg=_C_AZUL_MED,note="Z2 calculado individualmente por elemento (IEC 60909 Tab.3/Tab.13 — Z2=Z1 apenas para elementos passivos; "
+             "geradores/motores podem ter Z2≠Z1). Z0=INF: seq. zero bloqueada por ligação de trafo (Yg-D/D-Yg/D-D/Y-Y — IEC 60909 Tab.4).")
+    _h2(doc,"5.2","Correntes de Curto-Circuito MAXIMAS por Barra  (c = 1,10 -- IEC 60909 Tab.1)")
     rows_i=[]
     for r in sc_results:
         icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0
@@ -452,23 +468,45 @@ def _sec5(doc, sc_results, system=None):
         ip=getattr(r,"icc_peak_ka",0.0) or 0.0
         k=getattr(r,"kappa_factor",0.0) or 0.0
         bt=getattr(r,"icc_3ph_lv_ka",0.0) or 0.0
-        rows_i.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
+        z0_blocked=bool(getattr(r,"z0_blocked",False))
+        bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+        rows_i.append((getattr(r,"element_code","---"),bus_disp,
             f"{icc3:.3f}",f"{icc2:.3f}",
-            f"{icc2e:.3f}" if icc2e>0 else "BLOQ.",
-            f"{icc1:.3f}" if icc1>0 else "BLOQ.",
+            f"{icc2e:.3f}" if (icc2e>0 and not z0_blocked) else "BLOQ.",
+            f"{icc1:.3f}" if (icc1>0 and not z0_blocked) else "BLOQ.",
             f"{ip:.3f}",f"{k:.3f}",f"{bt:.3f}" if bt>0 else "---"))
     _tbl(doc,["Elem","Barra","Ik3φ (kA)","Ik2φ (kA)","IE_2LG (kA)","Ik1φ (kA)","ip (kA)","κ","Ik3-BT (kA)"],rows_i,
         widths=[Cm(1.3),Cm(1.6),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.0),Cm(2.1)],
         hbg=_C_AZUL_MED,
         note="Ik3φ=trifásico; Ik2φ=bifásico (fase-fase); IE_2LG=corrente de terra na falta bifásica-terra (IEC 60909 eq.55-56); "
-             "Ik1φ=monofásico (fase-terra); ip=pico assimétrico; BLOQ.=seq. zero bloqueada por trafo Yg-D.")
-    _h2(doc,"5.3","Memoria de Calculo -- Substituicao Numerica por Barra")
-    _body(doc,"Para cada barra apresenta-se a memoria de calculo com substituicao numerica completa nas equacoes IEC 60909:")
+             "Ik1φ=monofásico (fase-terra); ip=pico assimétrico; BLOQ.=seq. zero bloqueada por trafo. "
+             "Correntes MÁXIMAS (c=1,10) — para dimensionamento de equipamentos (Seção 6).")
+    _h2(doc,"5.3","Correntes de Curto-Circuito MINIMAS por Barra  (c = 0,95 -- IEC 60909 Tab.1)")
+    _body(doc,"Correntes mínimas de curto-circuito, exigidas para verificação de sensibilidade dos ajustes de relé "
+        "(IEC 60909 §3.2; Kindermann, Cap.3 — critério Ip ≤ 0,8 × I\"k2_mín). Usar a corrente MÁXIMA para "
+        "checar sensibilidade SUPERESTIMA a capacidade de detecção do relé e pode deixar faltas reais sem proteção.")
+    rows_min=[]
     for r in sc_results:
-        ec=getattr(r,"element_code","?"); bn=getattr(r,"bus_name","?")
-        z1=getattr(r,"z1_ohm",0j) or 0j
-        z0_raw=getattr(r,"z0_ohm",None)
-        z0 = z0_raw if (z0_raw is not None and abs(z0_raw)>1e-12) else None
+        i3m=getattr(r,"icc_3ph_min_ka",0.0) or 0.0
+        i2m=getattr(r,"icc_2ph_min_ka",0.0) or 0.0
+        i1m=getattr(r,"icc_1ph_min_ka",None)
+        z0_blocked=bool(getattr(r,"z0_blocked",False))
+        bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+        rows_min.append((getattr(r,"element_code","---"),bus_disp,
+            f"{i3m:.3f}",f"{i2m:.3f}",
+            f"{i1m:.3f}" if (i1m is not None and not z0_blocked) else "BLOQ."))
+    _tbl(doc,["Elem","Barra","Ik3φ_mín (kA)","Ik2φ_mín (kA)","Ik1φ_mín (kA)"],rows_min,
+        widths=[Cm(1.4),Cm(1.8),Cm(2.5),Cm(2.5),Cm(2.5)],
+        hbg=_C_AZUL_MED,note="Correntes MÍNIMAS (c=0,95) — usar para verificação de sensibilidade dos relés (Seção 7).")
+    _h2(doc,"5.4","Memoria de Calculo -- Substituicao Numerica por Barra")
+    _body(doc,"Para cada barra apresenta-se a memoria de calculo com substituicao numerica completa nas equacoes IEC 60909 (correntes máximas, c=1,10):")
+    for r in sc_results:
+        ec=getattr(r,"element_code","?")
+        bn=getattr(r,"bus_to","") or getattr(r,"bus_from","") or "?"
+        z1=complex(getattr(r,"z1_r_ohm",0.0) or 0.0, getattr(r,"z1_x_ohm",0.0) or 0.0)
+        z2_val=complex(getattr(r,"z2_r_ohm",0.0) or 0.0, getattr(r,"z2_x_ohm",0.0) or 0.0)
+        z0_blocked=bool(getattr(r,"z0_blocked",False))
+        z0 = None if z0_blocked else complex(getattr(r,"z0_r_ohm",0.0) or 0.0, getattr(r,"z0_x_ohm",0.0) or 0.0)
         icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; icc2=getattr(r,"icc_2ph_ka",0.0) or 0.0
         icc1=getattr(r,"icc_1ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
         k=getattr(r,"kappa_factor",0.0) or 0.0; z1m=abs(z1); v=getattr(r,"voltage_kv",13.8) or 13.8
@@ -477,19 +515,16 @@ def _sec5(doc, sc_results, system=None):
         ps.paragraph_format.space_after=Pt(2); ps.paragraph_format.left_indent=Cm(0.3)
         rs=ps.add_run(f"Barra {bn}  ({ec})")
         rs.bold=True; rs.font.size=Pt(10); rs.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
-        z0_val=getattr(r,"z0_ohm",None)
-        z2_val=getattr(r,"z2_ohm",None)
-        if z2_val is None: z2_val=z1   # Z2=Z1 para elementos passivos
         z2m=abs(z2_val)
         icc2e=getattr(r,"icc_2ph_ground_ka",0.0) or 0.0
         mem=[
             ("Z1 acum. (seq. positiva)",f"({z1.real:.6f} + j{z1.imag:.6f}) Ohm  |  |Z1| = {z1m:.6f} Ohm"),
-            ("Z2 acum. (seq. negativa)",f"({z2_val.real:.6f} + j{z2_val.imag:.6f}) Ohm  |  |Z2| = {z2m:.6f} Ohm  [Z2=Z1 para rede passiva]"),
+            ("Z2 acum. (seq. negativa)",f"({z2_val.real:.6f} + j{z2_val.imag:.6f}) Ohm  |  |Z2| = {z2m:.6f} Ohm  [valor calculado — IEC 60909 Tab.3/13]"),
             ("Z0 acum. (seq. zero)",
-             f"({z0.real:.6f} + j{z0.imag:.6f}) Ohm  |  |Z0| = {abs(z0):.6f} Ohm" if z0 is not None else "INF - seq. zero bloqueada (trafo Yg-D em serie)"),
+             f"({z0.real:.6f} + j{z0.imag:.6f}) Ohm  |  |Z0| = {abs(z0):.6f} Ohm" if z0 is not None else "INF - seq. zero bloqueada (ligação de trafo em série)"),
             ("X/R",f"{xr:.4f}"),
             ("κ = 1,02 + 0,98 × e^(−3×R/X)",f"= 1.02 + 0.98 x exp(−3 x R/X = −3 x {(1/xr if xr>0 else 0):.4f}) = {k:.4f}"),
-            ("--- Correntes de Curto ---","" ),
+            ("--- Correntes de Curto (c = 1,10 -- máximas) ---","" ),
             ("I''k3 = c x Vn / (sqrt(3) x |Z1|)  [IEC 60909 eq.29]",
              f"= {c:.2f}×Vn / (1,73205×{z1m:.6f}) = {icc3:.3f} kA"),
             ("I''k2 = (sqrt(3)/2) x I''k3  [IEC 60909 eq.45]",
@@ -506,61 +541,87 @@ def _sec5(doc, sc_results, system=None):
             mem.append(("IE_2LG = 3 x |Ia0| = 3 x |Ia1| x |Z2|/|Z2+Z0|  [IEC 60909 eq.56]",
                          f"= 3 x {ia1_2e:.3f} x {abs(z2_val):.6f} / {abs(z2_val+z0):.6f} = {icc2e:.3f} kA"))
         else:
-            mem.append(("IE_2LG (falta bifasica-terra)","BLOQUEADA — Z0=INF (trafo Yg-D em série)"))
+            mem.append(("IE_2LG (falta bifasica-terra)","BLOQUEADA — Z0=INF (ligação de trafo em série)"))
         # Ik1 (monofásica)
         if z0 is not None and icc1>0:
             z_den=abs(z1+z2_val+z0)
             mem.append(("Ik1 = sqrt(3) x c x Vn / |Z1+Z2+Z0|  [IEC 60909 eq.52]",
                          f"|Z1+Z2+Z0|={z_den:.6f} Ohm  =  {icc1:.3f} kA"))
         else:
-            mem.append(("Ik1 (falta monofasica fase-terra)","BLOQUEADA — Z0=INF (trafo Yg-D em série)"))
+            mem.append(("Ik1 (falta monofasica fase-terra)","BLOQUEADA — Z0=INF (ligação de trafo em série)"))
         mem.append(("ip = kappa x sqrt(2) x Ik3  [IEC 60909 eq.74]",
                      f"= {k:.4f} x 1.41421 x {icc3:.3f} = {ip:.3f} kA"))
+        i3m=getattr(r,"icc_3ph_min_ka",0.0) or 0.0
+        mem.append(("I''k3_mín = 0,95 x Vn / (sqrt(3) x |Z1|)  [IEC 60909 eq.29, c=C_MIN]",
+                     f"= 0,95×Vn / (1,73205×{z1m:.6f}) = {i3m:.3f} kA  (ver Seção 5.3 p/ sensibilidade dos relés)"))
         for w in warns: mem.append(("Obs.",str(w)))
         _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)
 
 def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
+    # ── Correção (relatório "Z zeradas") ────────────────────────────────────
+    # Os objetos CTSizingOutput/VTSizingOutput/BreakerSizingOutput (schemas
+    # reais em app/calculations/schemas.py) NÃO têm bus_name/icc_3ph_ka_bus/
+    # icc_peak_ka_bus/rated_primary_A/alf/rated_sc_ka/rated_peak_ka/
+    # rated_primary_kv/rated_secondary_v/burden_va/is_valid — nomes que
+    # nunca existiram nesses schemas. Os nomes reais são ip_nominal_a,
+    # alf_required/alf_adopted, vp_v/vs_v, burden_check_ok,
+    # breaking_current_ka, making_current_ka. Barra e Ik3/ip (que os
+    # sizing-outputs não carregam) são obtidos aqui por referência cruzada
+    # com sc_results (mesmo element_code).
+    sc_map = {getattr(r,"element_code",None): r for r in (sc_results or [])}
+    def _bus_icc3_ip(element_code):
+        r = sc_map.get(element_code)
+        if r is None:
+            return "---", 0.0, 0.0
+        bus = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+        return bus, (getattr(r,"icc_3ph_ka",0.0) or 0.0), (getattr(r,"icc_peak_ka",0.0) or 0.0)
+
     _h1(doc,"6","DIMENSIONAMENTO DE EQUIPAMENTOS DE PROTECAO E MEDICAO")
     _body(doc,"O dimensionamento e realizado com base nas correntes calculadas na Secao 5, observando os criterios normativos de cada equipamento.")
-    _h2(doc,"6.1","Transformadores de Corrente (TC) -- IEC 61869-2")
+    _h2(doc,"6.1","Transformadores de Corrente (TC) -- ABNT NBR IEC 61869-2")
     _body(doc,"Criterio principal: Fator de Limite de Precisao (ALF) minimo para que o TC nao sature durante a corrente de falta maxima:")
     _omml_block(doc,EQ_ALF(),label="6.1")
     _tbl(doc,["Criterio","Formula / Regra","Norma"],[
-        ("Corrente nominal I_n1","I_n1 >= 1,2 x I_carga_nominal","IEC 61869-2 sec.6.1"),
-        ("ALF minimo de protecao","ALF >= Ik3 [A] / I_n1 [A]","IEC 61869-2 sec.6.3"),
-        ("Classe de precisao","5P para protecao; 10P para sobrecorrente simples","IEC 61869-2 Tab.3"),
-        ("Tensao de knee-point (PS)","Vk >= ALF x I_n2 x (R_CT + R_burden)","IEC 61869-2 sec.6.4"),
+        ("Corrente nominal I_n1","I_n1 >= 1,2 x I_carga_nominal","ABNT NBR IEC 61869-2 sec.5.1.2"),
+        ("ALF minimo de protecao","ALF >= Ik3 [A] / I_n1 [A]","ABNT NBR IEC 61869-2"),
+        ("Classe de precisao","5P para protecao; 10P para sobrecorrente simples","ABNT NBR IEC 61869-2"),
+        ("Tensao de joelho Vk (classe PX -- diferencial 87T)","Vk >= ALF x (Rct + Rb) x Is","ABNT NBR IEC 61869-2 sec.6.2"),
     ],widths=[Cm(4.0),Cm(8.0),Cm(4.0)])
     if ct_results:
         rows_ct=[]
         for ct in ct_results:
-            icc3=getattr(ct,"icc_3ph_ka_bus",0.0) or 0.0; in1=getattr(ct,"rated_primary_A",0.0) or 0.0
-            alf_calc=round((icc3*1000)/in1,1) if in1>0 else 0.0
-            alf_nom=getattr(ct,"alf",20.0) or 20.0; classe=getattr(ct,"accuracy_class","5P20")
-            ok=alf_nom>=alf_calc
-            rows_ct.append((getattr(ct,"element_code","---"),getattr(ct,"bus_name","---"),
-                f"{in1:.0f} / 5 A",f"{icc3:.3f} kA",f"{alf_calc:.1f}",f"{alf_nom:.0f}",classe,_ok_str(ok)))
+            bus, icc3, _ = _bus_icc3_ip(getattr(ct,"element_code",None))
+            in1=getattr(ct,"ip_nominal_a",0.0) or 0.0
+            alf_calc=getattr(ct,"alf_required",0.0) or 0.0
+            alf_nom=getattr(ct,"alf_adopted",20) or 20; classe=getattr(ct,"accuracy_class","5P20")
+            ok=getattr(ct,"saturation_check_ok",alf_nom>=alf_calc)
+            rows_ct.append((getattr(ct,"element_code","---"),bus,
+                f"{in1:.0f} / {getattr(ct,'secondary_current_a',5.0):.0f} A",f"{icc3:.3f} kA",
+                f"{alf_calc:.1f}",f"{alf_nom:.0f}",classe,_ok_str(ok)))
         _tbl(doc,["Elem","Barra","Relacao(A)","Ik3(kA)","ALF calc","ALF nom","Classe","Result."],rows_ct,
             widths=[Cm(1.4),Cm(1.8),Cm(2.2),Cm(2.0),Cm(1.8),Cm(1.8),Cm(2.0),Cm(3.0)],
-            note="TC aprovado se ALF_nominal >= ALF_calc.")
+            note="TC aprovado se ALF_nominal >= ALF_calc (saturation_check_ok).")
     else: _body(doc,"Resultados de TC nao disponiveis.",italic=True)
-    _h2(doc,"6.2","Transformadores de Potencial (TP) -- IEC 61869-3")
+    _h2(doc,"6.2","Transformadores de Potencial (TP) -- ABNT NBR IEC 61869-3")
     _tbl(doc,["Criterio","Formula / Regra","Norma"],[
-        ("Tensao primaria","VrTV >= V_sistema / sqrt(3)  (fase-terra)","IEC 61869-3 sec.5.3"),
-        ("Classe de medicao","Classe 0.5 para medicao fiscal; 3P para protecao","IEC 61869-3 Tab.1"),
-        ("Fator de tensao (FT)","FT = 1,9 por 8 h para sistema isolado","IEC 61869-3 sec.5.3.3"),
-        ("Burden maximo","Carga real <= B_nominal (10/25/50/100 VA)","IEC 61869-3 sec.6.2"),
+        ("Tensao primaria","VrTV >= V_sistema  (fase-fase) ou /sqrt(3) (fase-terra)","ABNT NBR IEC 61869-3 sec.5"),
+        ("Classe de medicao","Classe 0,5 para medicao fiscal; 3P para protecao","ABNT NBR IEC 61869-3"),
+        ("Fator de tensao (Ktf)","1,2 (neutro aterrado) / 1,9 (isolado ou Petersen)","ABNT NBR IEC 61869-3 Tab.6"),
+        ("Burden maximo","Carga real <= B_nominal (10/15/25/30/50/75/100/... VA)","ABNT NBR IEC 61869-3"),
     ],widths=[Cm(4.0),Cm(8.0),Cm(4.0)])
     if vt_results:
         rows_vt=[]
         for vt in vt_results:
-            ok=getattr(vt,"is_valid",True)
-            rows_vt.append((getattr(vt,"element_code","---"),getattr(vt,"bus_name","---"),
-                getattr(vt,"rated_primary_kv","---"),getattr(vt,"rated_secondary_v","115 V"),
-                getattr(vt,"accuracy_class","0.5"),getattr(vt,"burden_va","---"),_ok_str(ok)))
-        _tbl(doc,["Elem","Barra","V prim","V sec","Classe","Burden(VA)","Result."],rows_vt,
-            widths=[Cm(1.4),Cm(1.8),Cm(2.5),Cm(2.0),Cm(2.0),Cm(2.5),Cm(3.8)])
+            bus, _, _ = _bus_icc3_ip(getattr(vt,"element_code",None))
+            ok=getattr(vt,"burden_check_ok",True)
+            rows_vt.append((getattr(vt,"element_code","---"),bus,
+                f"{getattr(vt,'vp_v',0.0):.0f} V",f"{getattr(vt,'vs_v',0.0):.1f} V",
+                getattr(vt,"accuracy_class","3P"),f"{getattr(vt,'burden_total_va',0.0):.1f}",
+                f"{getattr(vt,'ktf_value',1.9):.1f}",_ok_str(ok)))
+        _tbl(doc,["Elem","Barra","V prim","V sec","Classe","Burden(VA)","Ktf","Result."],rows_vt,
+            widths=[Cm(1.3),Cm(1.6),Cm(2.2),Cm(1.8),Cm(1.6),Cm(2.2),Cm(1.3),Cm(2.9)],
+            note="Ktf conforme regime de aterramento do neutro informado (ver Seção 3/Fonte).")
     else: _body(doc,"Resultados de TP nao disponiveis.",italic=True)
     _h2(doc,"6.3","Disjuntores -- IEC 62271-100")
     _tbl(doc,["Parametro","Criterio","Norma"],[
@@ -571,14 +632,15 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
     if breaker_results:
         rows_br=[]
         for br in breaker_results:
-            icc3=getattr(br,"icc_3ph_ka_bus",0.0) or 0.0; ip=getattr(br,"icc_peak_ka_bus",0.0) or 0.0
-            icu=getattr(br,"rated_sc_ka",0.0) or 0.0; ima=getattr(br,"rated_peak_ka",0.0) or 0.0
-            ok=(icu>=icc3) and (ima>=ip)
-            rows_br.append((getattr(br,"element_code","---"),getattr(br,"bus_name","---"),
+            bus, icc3, ip = _bus_icc3_ip(getattr(br,"element_code",None))
+            icu=getattr(br,"breaking_current_ka",0.0) or 0.0
+            ima=getattr(br,"making_current_ka",0.0) or 0.0
+            ok=getattr(br,"breaking_ok",True) and getattr(br,"voltage_ok",True) and getattr(br,"current_ok",True)
+            rows_br.append((getattr(br,"element_code","---"),bus,
                 f"{icc3:.3f}",f"{ip:.3f}",f"{icu:.1f}",f"{ima:.1f}",_ok_str(ok)))
         _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","I_cu(kA)","I_ma(kA)","Result."],rows_br,
             widths=[Cm(1.5),Cm(2.0),Cm(2.2),Cm(2.0),Cm(2.2),Cm(2.2),Cm(3.9)],
-            note="Aprovado: I_cu >= Ik3 E I_ma >= ip.")
+            note="Aprovado: voltage_ok E current_ok E breaking_ok (I_cu >= Ik3 E I_ma >= ip).")
     else: _body(doc,"Resultados de disjuntores nao disponiveis.",italic=True)
     _h2(doc,"6.4","Sintese do Dimensionamento por Barra")
     if sc_results:
@@ -595,6 +657,20 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
     _sp(doc,4)
 
 def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None):
+    # ── Correção (relatório "Z zeradas") ────────────────────────────────────
+    # RelaySettingOutput (schema real) não tem bus_name/relay_type/
+    # pickup_current_a/pickup_multiple/time_multiplier/inst_pickup_a/
+    # op_time_s/time_dial/icc_3ph_ka_bus. Campos reais: element_code,
+    # ansi_function, pickup_primary_ka, pickup_secondary_a, tms_suggested,
+    # curve_type, icc_3ph_ka (referência), t_at_icc_3ph_s/2ph/1ph,
+    # sensitivity_ok, sensitivity_ratio. Barra é obtida por referência
+    # cruzada com sc_results (mesmo element_code).
+    sc_map = {getattr(r,"element_code",None): r for r in (sc_results or [])}
+    def _bus_of(element_code):
+        r = sc_map.get(element_code)
+        if r is None: return "---"
+        return getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+
     _h1(doc,"7","COORDENACAO E SELETIVIDADE DOS RELES DE PROTECAO")
     _body(doc,"A coordenacao garante que o dispositivo mais proximo ao ponto de falta atue primeiro (protecao primaria), e o dispositivo a montante atue so se o primeiro falhar (retaguarda).")
     _h2(doc,"7.1","Criterios de Coordenacao  (IEC 60255)")
@@ -603,34 +679,49 @@ def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None):
         ("Digital / Microprocesado",">=0,25 s","Tolerancia +/-5% + tempo de abertura (~60 ms) + margem"),
         ("Numerico IED",">= 0,20 s","Tolerancia <= 1% + tempo de abertura <= 60 ms"),
     ],widths=[Cm(4.0),Cm(2.5),Cm(9.5)],note="CTI = t_retaguarda - t_primaria. Adotado neste estudo: 0,30 s.")
-    _h2(doc,"7.2","Ajustes dos Reles por Barra")
+    _h2(doc,"7.2","Ajustes dos Reles por Elemento")
     if relay_results:
         rows_r=[]
         for relay in relay_results:
-            rows_r.append((getattr(relay,"element_code","---"),getattr(relay,"bus_name","---"),
-                getattr(relay,"relay_type","51"),getattr(relay,"curve_type","VI"),
-                f"{getattr(relay,'pickup_current_a',0.0):.1f} A",
-                f"{getattr(relay,'pickup_multiple',0.0):.2f} pu",
-                f"{getattr(relay,'time_multiplier',0.0):.3f}",
-                f"{getattr(relay,'inst_pickup_a',0.0):.1f} A"))
-        _tbl(doc,["Elem","Barra","Funcao","Curva","Pickup(A)","Pickup(pu)","TMS","Inst.(A)"],rows_r,
-            widths=[Cm(1.4),Cm(1.8),Cm(1.5),Cm(1.5),Cm(2.0),Cm(2.0),Cm(1.8),Cm(4.0)],
-            hbg=_C_AZUL_MED,note="Funcao ANSI: 51=sobrecorrente temporizado; 50=instantaneo; 67=direcional.")
+            bus = _bus_of(getattr(relay,"element_code",None))
+            t3 = getattr(relay,"t_at_icc_3ph_s",None)
+            sens_ok = getattr(relay,"sensitivity_ok",True)
+            rows_r.append((getattr(relay,"element_code","---"),bus,
+                getattr(relay,"ansi_function","51"),getattr(relay,"curve_type","—"),
+                f"{getattr(relay,'pickup_secondary_a',0.0):.2f} A",
+                f"{getattr(relay,'pickup_primary_ka',0.0):.3f} kA",
+                f"{getattr(relay,'tms_suggested',0.0):.3f}",
+                f"{t3:.3f} s" if t3 is not None else "—",
+                _ok_str(sens_ok)))
+        _tbl(doc,["Elem","Barra","Funcao","Curva","Pickup(A sec.)","Pickup(kA prim.)","TMS","t@Ik3(s)","Sensib."],rows_r,
+            widths=[Cm(1.3),Cm(1.5),Cm(1.3),Cm(1.3),Cm(2.0),Cm(2.0),Cm(1.4),Cm(1.6),Cm(1.6)],
+            hbg=_C_AZUL_MED,note="Funcao ANSI: 51/67=sobrecorrente temporizado (fase/direcional); 50=instantaneo; 51N/67N=terra. "
+                 "Sensib.: verificada com Ik_mínimo (c=0,95 — Seção 5.3), critério IEC 60909 §3.2 / Kindermann Cap.3.")
+        _sensib_bad = [r for r in relay_results if not getattr(r,"sensitivity_ok",True)]
+        if _sensib_bad:
+            _nota(doc, f"ATENÇÃO: {len(_sensib_bad)} ajuste(s) reprovado(s) no critério de sensibilidade "
+                       "(razão Ik_mín/Ip < mínimo exigido). Revisar pickup ou impedância da fonte antes da aprovação final.")
     else: _body(doc,"Nenhum resultado de rele disponivel.",italic=True)
     _h2(doc,"7.3","Analise de Seletividade -- Margens CTI")
     if relay_results and len(relay_results)>=2:
         rows_cti=[]
         for i in range(len(relay_results)-1):
             rp=relay_results[i]; rr=relay_results[i+1]
-            tp=float(getattr(rp,"op_time_s",None) or getattr(rp,"time_dial",0.3))
-            tr=float(getattr(rr,"op_time_s",None) or getattr(rr,"time_dial",0.6))
+            tp_raw=getattr(rp,"t_at_icc_3ph_s",None); tr_raw=getattr(rr,"t_at_icc_3ph_s",None)
+            if tp_raw is None or tr_raw is None:
+                continue
+            tp=float(tp_raw); tr=float(tr_raw)
             cti=round(tr-tp,3); ok=cti>=0.20
             rows_cti.append((getattr(rp,"element_code","---"),getattr(rr,"element_code","---"),
-                f"{getattr(rp,'icc_3ph_ka_bus',0):.3f} kA",
+                f"{getattr(rp,'icc_3ph_ka',0.0) or 0.0:.3f} kA",
                 f"{tp:.3f} s",f"{tr:.3f} s",f"{cti:.3f} s","OK" if ok else "REVISAR"))
-        _tbl(doc,["Primaria","Retaguarda","Ik3 falta(kA)","t_prim(s)","t_ret(s)","CTI(s)","Coord."],rows_cti,
-            widths=[Cm(2.0),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.0),Cm(2.0)],
-            note="CTI >= 0,20 s: OK. CTI < 0,20 s: revisar TMS ou Pickup.")
+        if rows_cti:
+            _tbl(doc,["Primaria","Retaguarda","Ik3 falta(kA)","t_prim(s)","t_ret(s)","CTI(s)","Coord."],rows_cti,
+                widths=[Cm(2.0),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.0),Cm(2.0)],
+                note="CTI >= 0,20 s: OK. CTI < 0,20 s: revisar TMS ou Pickup. Pares consecutivos na lista de relés — "
+                     "conferir se correspondem de fato a primário/retaguarda na topologia real antes de aprovar.")
+        else:
+            _body(doc,"CTI nao calculavel — tempos de atuacao (t_at_icc_3ph_s) indisponiveis para os reles.",italic=True)
     else: _body(doc,"CTI nao disponivel (requer >= 2 reles configurados).",italic=True)
     _h2(doc,"7.4","Coordenograma Tempo x Corrente")
     _body(doc,"O coordenograma apresenta as curvas Tempo x Corrente (log-log) dos reles com as correntes de falta por barra. As curvas de inrush delimitam a zona proibida de atuacao:")

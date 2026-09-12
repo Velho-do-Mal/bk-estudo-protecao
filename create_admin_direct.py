@@ -3,20 +3,49 @@ create_admin_direct.py
 
 Cria o usuário administrador diretamente (não interativo).
 Execute: python create_admin_direct.py
+
+ATENÇÃO — CORREÇÃO DE SEGURANÇA (auditoria 2026-09):
+    Este arquivo continha um login, e-mail pessoal real e SENHA EM TEXTO
+    PLANO codificados diretamente no código-fonte, versionado neste
+    repositório público no GitHub. Qualquer pessoa com acesso ao repositório
+    (e, se ele já foi público em algum momento, potencialmente qualquer
+    pessoa via histórico do git/caches de terceiros) tinha acesso de admin
+    ao sistema. RECOMENDAÇÃO URGENTE, independente desta correção:
+      1) Trocar IMEDIATAMENTE a senha do usuário admin real (e de qualquer
+         outro sistema onde a mesma senha tenha sido reutilizada).
+      2) Considerar o e-mail/senha antigos como comprometidos.
+      3) Reescrever o histórico do git (git filter-repo / BFG Repo-Cleaner)
+         para remover o commit que introduziu a credencial, e avaliar tornar
+         o repositório privado caso ainda não seja necessário mantê-lo público.
+    A partir desta correção, usuário/e-mail/nome/senha são lidos de
+    variáveis de ambiente; se a senha não for informada, uma senha
+    aleatória forte é gerada e exibida UMA ÚNICA VEZ (nunca gravada em
+    código ou log persistente).
 """
 
 import asyncio
+import secrets
 import sys
 import uuid
 import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-USERNAME = "admin"
-EMAIL = "marcio@bk-engenharia.com"
-FULL_NAME = "Marcio Knopp"
-PASSWORD = "velhodomal1976"
+USERNAME = os.environ.get("BK_ADMIN_USERNAME", "admin")
+EMAIL = os.environ.get("BK_ADMIN_EMAIL")
+FULL_NAME = os.environ.get("BK_ADMIN_FULL_NAME", "Administrador")
+PASSWORD = os.environ.get("BK_ADMIN_PASSWORD")
 ROLE = "admin"
+
+if not EMAIL:
+    print("ERRO: defina a variável de ambiente BK_ADMIN_EMAIL antes de executar este script.")
+    print("Exemplo:  BK_ADMIN_EMAIL=seu@email.com BK_ADMIN_PASSWORD='senha-forte' python create_admin_direct.py")
+    sys.exit(1)
+
+_GENERATED_PASSWORD = False
+if not PASSWORD:
+    PASSWORD = secrets.token_urlsafe(16)
+    _GENERATED_PASSWORD = True
 
 
 async def main():
@@ -60,7 +89,11 @@ async def main():
     print()
     print("Usuario criado com sucesso!")
     print(f"Login: {EMAIL}")
-    print(f"Senha: {PASSWORD}")
+    if _GENERATED_PASSWORD:
+        print(f"Senha (gerada automaticamente — ANOTE AGORA, não será exibida novamente): {PASSWORD}")
+        print("Troque esta senha no primeiro acesso.")
+    else:
+        print("Senha: (a que você definiu em BK_ADMIN_PASSWORD)")
     print(f"Role:  {ROLE}")
     print()
     print("Rode a aplicacao com:")

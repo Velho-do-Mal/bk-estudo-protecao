@@ -67,6 +67,10 @@ class Study(Base):
     neutral_regime: Mapped[Optional[str]] = mapped_column(String(50))
     primary_connection: Mapped[Optional[str]] = mapped_column(String(30), default="Yg")
 
+    # Regime de aterramento do neutro p/ dimensionamento do TP (Ktf) —
+    # 'isolado' | 'aterrado' | 'petersen'. Ver engine/sizing/vt_sizing.py.
+    neutral_grounding: Mapped[Optional[str]] = mapped_column(String(20), default="isolado")
+
     # Impedância da fonte (concessionária / equivalente Thévenin)
     z_source_r_ohm: Mapped[float] = mapped_column(Float, default=0.0)
     z_source_x_ohm: Mapped[float] = mapped_column(Float, default=0.0)

@@ -100,12 +100,19 @@ class CalculationService:
         for raw in sc_results_raw:
             sc_results.append(ElementResult(
                 element_code=raw.element_code,
+                bus_from=getattr(raw, "bus_from", ""),
                 bus_to=raw.bus_name,
                 z1_r_ohm=raw.z1_ohm.real,
                 z1_x_ohm=raw.z1_ohm.imag,
                 z1_mag_ohm=abs(raw.z1_ohm),
+                # Correção: Z2 real (antes descartado — engine já calculava
+                # corretamente, mas o campo não existia neste schema)
+                z2_r_ohm=getattr(raw, "z2_ohm", raw.z1_ohm).real,
+                z2_x_ohm=getattr(raw, "z2_ohm", raw.z1_ohm).imag,
+                z2_mag_ohm=abs(getattr(raw, "z2_ohm", raw.z1_ohm)),
                 z0_r_ohm=raw.z0_ohm.real,
                 z0_x_ohm=raw.z0_ohm.imag,
+                z0_blocked=getattr(raw, "z0_blocked", False),
                 icc_3ph_ka=raw.icc_3ph_ka,
                 icc_2ph_ka=raw.icc_2ph_ka,
                 icc_1ph_ka=raw.icc_1ph_ka,
@@ -113,6 +120,9 @@ class CalculationService:
                 icc_peak_ka=raw.icc_peak_ka,
                 kappa_factor=raw.kappa_factor,
                 icc_3ph_lv_ka=raw.icc_3ph_lv_ka,
+                icc_3ph_min_ka=getattr(raw, "icc_3ph_min_ka", 0.0),
+                icc_2ph_min_ka=getattr(raw, "icc_2ph_min_ka", 0.0),
+                icc_1ph_min_ka=getattr(raw, "icc_1ph_min_ka", None),
                 warnings=raw.warnings,
                 assumptions=raw.assumptions,
                 is_valid=raw.is_valid,
@@ -258,6 +268,7 @@ def _build_system_base(s) -> SystemBase:
         voltage_factor_c=s.voltage_factor_c,
         conductor_temp_c=s.conductor_temp_c,
         underground_group_factor=s.underground_group_factor,
+        neutral_grounding=getattr(s, 'neutral_grounding', 'isolado'),
     )
 
 
@@ -376,6 +387,18 @@ def _suggest_all_relay_settings(
             icc3 = raw.icc_3ph_ka
             icc2 = raw.icc_2ph_ka
             icc1 = raw.icc_1ph_ka
+            # ── Correção 3: correntes MÍNIMAS (c=0,95) para verificação de
+            # sensibilidade — IEC 60909 §3.2 / Kindermann Cap.3: a sensibilidade
+            # do relé (Ip <= 0,8 x I"k2_mín) deve ser checada na condição
+            # MÍNIMA de curto, nunca na máxima (usar a máxima aqui SUPERESTIMA
+            # a sensibilidade real do ajuste e pode deixar faltas reais sem
+            # detecção). Antes desta correção, o parâmetro icc_2ph_ka/icc_1ph_ka
+            # de suggest_relay_settings — cujo próprio campo de saída se chama
+            # 'icc_2ph_min_ka'/idem — recebia o valor MÁXIMO por engano.
+            icc2_min = getattr(raw, "icc_2ph_min_ka", 0.0) or icc2
+            icc1_min = getattr(raw, "icc_1ph_min_ka", None)
+            if icc1_min is None:
+                icc1_min = icc1
 
             # Corrente nominal estimada a partir dos dados do elemento
             i_load_ka = 0.0
@@ -412,9 +435,11 @@ def _suggest_all_relay_settings(
 
             if icc3 > 0:
                 # 51 — sobrecorrente temporizada de fase (NI)
+                # Correção 3: sensibilidade verificada com Ik2_MÍNIMO (c=0,95),
+                # não o máximo — critério Kindermann Cap.3 / IEC 60909 §3.2.
                 rs51 = suggest_relay_settings(
                     element_code=elem.code, ansi_function="51",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                     i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type=relay_curve_type,
                 )
                 relay_results.append(_make_relay_output(rs51, icc3))
@@ -436,18 +461,20 @@ def _suggest_all_relay_settings(
 
                 # 67 — direcional de fase (linhas, cabos e alimentadores)
                 if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    # Correção 3: sensibilidade com Ik2_mínimo (idem função 51)
                     rs67 = suggest_relay_settings(
                         element_code=elem.code, ansi_function="67",
-                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                         i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
                     )
                     relay_results.append(_make_relay_output(rs67, icc3))
 
                 # 46 — sequência negativa
                 if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    # Correção 3: sensibilidade (I2_falta/Ip) com Ik2_mínimo
                     rs46 = suggest_relay_settings(
                         element_code=elem.code, ansi_function="46",
-                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                         i_load_ka=i_load_ka, ct_ratio=ct_ratio,
                     )
                     relay_results.append(_make_relay_output(rs46, icc2 if icc2 > 0 else icc3, curve="—"))
@@ -514,9 +541,11 @@ def _suggest_all_relay_settings(
 
             # 51N — terra temporizado (quando há corrente monofásica)
             if icc1 > 0:
+                # Correção 3: pickup e sensibilidade de terra com Ik1_MÍNIMO
+                # (c=0,95) — mesma lógica da função 51, aplicada à terra.
                 rs51n = suggest_relay_settings(
                     element_code=elem.code, ansi_function="51N",
-                    icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                    icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                     i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
                 )
                 relay_results.append(RelaySettingOutput(
@@ -533,9 +562,10 @@ def _suggest_all_relay_settings(
 
                 # 67N — terra direcional
                 if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
+                    # Correção 3: sensibilidade com Ik1_mínimo (idem 51N)
                     rs67n = suggest_relay_settings(
                         element_code=elem.code, ansi_function="67N",
-                        icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
+                        icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                         i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
                     )
                     relay_results.append(_make_relay_output(rs67n, icc1, curve="EI"))
@@ -651,7 +681,13 @@ def _size_all_equipment(
                     element_code=elem.code,
                     system_voltage_kv=v_kv,
                     purpose="protecao",
-                    neutral_grounding="isolado",  # padrão MT Brasil
+                    # Correção (achado 2.2.4): antes fixo em "isolado" para
+                    # TODOS os estudos, independente do regime de aterramento
+                    # real informado. Isso alterava o Ktf (1,9 vs 1,2 —
+                    # ABNT NBR IEC 61869-3 Tab.6) e, portanto, a especificação
+                    # de isolamento do TP, de forma incorreta para redes com
+                    # neutro solidamente aterrado.
+                    neutral_grounding=getattr(system, "neutral_grounding", "isolado"),
                     connection="fase-fase",
                     burden_connected_va=25.0,
                 )

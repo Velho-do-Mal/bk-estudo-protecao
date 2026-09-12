@@ -53,6 +53,14 @@ class SystemBase:
     primary_connection: str = "Yg"       # Yg (aterrado), Y, D (delta)
     neutral_regime: str = "aterrado_solido"
 
+    # Regime de aterramento do neutro para fins de dimensionamento do TP
+    # (fator de tensão Ktf — ABNT NBR IEC 61869-3 Tab.6): 'aterrado' (Ktf=1,2)
+    # | 'isolado' (Ktf=1,9) | 'petersen' (Ktf=1,9). Campo independente de
+    # 'neutral_regime' acima (convenções de string distintas — ver
+    # engine/sizing/vt_sizing.py::_KTF). Correção: antes fixado em "isolado"
+    # diretamente no service.py, ignorando o regime real do projeto.
+    neutral_grounding: str = "isolado"
+
     # Fatores de correção IEC 60909
     voltage_factor_c: float = 1.10      # Fator c (Tab.1 IEC 60909): 1,10 máx / 0,95 mín
     k_generator: float = 1.0            # Fator de correção para geradores

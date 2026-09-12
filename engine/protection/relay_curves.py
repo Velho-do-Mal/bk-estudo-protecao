@@ -157,7 +157,12 @@ IEEE_CURVES: dict[str, CurveParams] = {
         label="IEEE CO8 (Inversamente Inversa)",
     ),
     "IEEE_MI": CurveParams(
-        name="IEEE_MI", standard="IEEE", K_or_A=0.0515, alpha_or_p=0.02, B=0.114,
+        # Correção: valores anteriores (0,0515 / 0,02 / 0,114) eram uma cópia
+        # exata dos coeficientes da curva CO2 (Moderadamente Inversa) — o
+        # próprio cabeçalho deste arquivo (linha ~20) já documentava os
+        # coeficientes corretos da IEEE Muito Inversa (A=19,61 B=0,491 p=2,0
+        # — IEEE C37.112-1996 Tab.1), que nunca haviam sido aplicados aqui.
+        name="IEEE_MI", standard="IEEE", K_or_A=19.61, alpha_or_p=2.0, B=0.491,
         label="IEEE Muito Inversa",
     ),
     "IEEE_EI": CurveParams(

@@ -78,6 +78,14 @@ class SystemInput(BaseModel):
     conductor_temp_c: float = Field(default=20.0, ge=-20, le=200)
     underground_group_factor: float = Field(default=1.0, gt=0, le=1)
 
+    # Regime de aterramento do neutro do sistema — usado no dimensionamento
+    # do TP (fator de tensão Ktf, ABNT NBR IEC 61869-3 Tab.6): 'aterrado'
+    # (Ktf=1,2) | 'isolado' (Ktf=1,9) | 'petersen' (Ktf=1,9). Antes deste
+    # campo existir, o valor era fixado em "isolado" no código (service.py),
+    # independente do regime real informado pela concessionária/projeto —
+    # correto apenas por coincidência para redes MT isoladas.
+    neutral_grounding: str = "isolado"
+
 
 class CalculationRequest(BaseModel):
     """Request completo de cálculo de engenharia."""
@@ -96,14 +104,26 @@ class ElementResult(BaseModel):
     bus_to: str = ""
     voltage_kv: float = 0.0
 
-    # Impedâncias acumuladas
+    # Impedâncias acumuladas — sequência positiva
     z1_r_ohm: float = 0.0
     z1_x_ohm: float = 0.0
     z1_mag_ohm: float = 0.0
+
+    # Impedâncias acumuladas — sequência negativa (Z2 real; Z2=Z1 apenas
+    # para elementos passivos — para geradores/motores Z2 ≠ Z1, IEC 60909 Tab.13)
+    z2_r_ohm: float = 0.0
+    z2_x_ohm: float = 0.0
+    z2_mag_ohm: float = 0.0
+
+    # Impedâncias acumuladas — sequência zero
     z0_r_ohm: float = 0.0
     z0_x_ohm: float = 0.0
+    # True = seq. zero BLOQUEADA (Z0=∞, ex.: trafo Yg-D em série) — os campos
+    # z0_r_ohm/z0_x_ohm acima ficam em 0.0 apenas por limitação de tipagem;
+    # NÃO interpretar como "Z0 calculado = 0". Consultar este flag primeiro.
+    z0_blocked: bool = False
 
-    # Correntes de curto [kA]
+    # Correntes de curto MÁXIMAS (c = 1,10 — IEC 60909 Tab.1) [kA]
     icc_3ph_ka: float = 0.0
     icc_2ph_ka: float = 0.0
     icc_1ph_ka: float = 0.0
@@ -111,6 +131,13 @@ class ElementResult(BaseModel):
     icc_peak_ka: float = 0.0
     kappa_factor: float = 0.0
     icc_3ph_lv_ka: float = 0.0  # no secundário (BT)
+
+    # Correntes de curto MÍNIMAS (c = 0,95 — IEC 60909 Tab.1) [kA]
+    # Usadas para verificação de sensibilidade dos relés (IEC 60909 §3.2;
+    # Kindermann Cap.3: Ip ≤ 0,8 × I"k2_mín) — NÃO usar as máximas para isso.
+    icc_3ph_min_ka: float = 0.0
+    icc_2ph_min_ka: float = 0.0
+    icc_1ph_min_ka: Optional[float] = None
 
     # Alertas e hipóteses
     warnings: list[str] = []

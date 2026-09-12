@@ -97,6 +97,27 @@ with st.expander("Fonte / Concessionaria", expanded=True):
         index=_curve_idx, key="relay_curve",
     )
 
+    # ── Correção (achado 2.2.4): regime de aterramento do neutro ───────────
+    # Antes usado apenas internamente e fixado em "isolado" para TODO estudo
+    # no dimensionamento do TP (Ktf — ABNT NBR IEC 61869-3 Tab.6), ignorando
+    # o regime real da rede. Agora informado explicitamente pelo usuário.
+    NEUTRAL_GROUNDING_OPTIONS = {
+        "isolado": "Isolado (Ktf=1,9) — típico MT urbana Brasil",
+        "aterrado": "Solidamente aterrado (Ktf=1,2)",
+        "petersen": "Aterrado via bobina de Petersen (Ktf=1,9)",
+    }
+    _saved_ng = getattr(study, "neutral_grounding", None) or "isolado"
+    _ng_keys = list(NEUTRAL_GROUNDING_OPTIONS.keys())
+    _ng_idx = _ng_keys.index(_saved_ng) if _saved_ng in _ng_keys else 0
+    neutral_grounding = st.selectbox(
+        "Regime de aterramento do neutro (para dimensionamento do TP)",
+        options=_ng_keys, format_func=lambda k: NEUTRAL_GROUNDING_OPTIONS[k],
+        index=_ng_idx, key="neutral_grounding",
+        help="Define o fator de tensão Ktf do TP (ABNT NBR IEC 61869-3 Tab.6). "
+             "Confirme com a concessionária/projeto de aterramento — NÃO assumir "
+             "'isolado' sem verificar.",
+    )
+
     if source_mode == "Scc (MVA) + X/R":
         fc1, fc2 = st.columns(2)
         scc_mva = fc1.number_input(
@@ -123,7 +144,7 @@ with st.expander("Fonte / Concessionaria", expanded=True):
             st.caption(
                 f"Z1: R={z_r:.6f} Ohm | X={z_x:.6f} Ohm | "
                 f"|Z1|={_zmag:.4f} Ohm | X/R={xr_source:.0f} "
-                "(Z2=Z1, Z0=Z1 — aprox. IEC 60909 para rede MT/AT)"
+                "(Z2=Z1 — aprox. IEC 60909 para rede de transmissão)"
             )
         else:
             z_r = z_x = 0.0
@@ -131,8 +152,38 @@ with st.expander("Fonte / Concessionaria", expanded=True):
                 "Scc e obrigatorio. Solicite a concessionaria a potencia de "
                 "curto-circuito no ponto de entrega (MVA ou Icc3f em kA)."
             )
-        z_r2, z_x2 = z_r, z_x
-        z_r0, z_x0 = z_r, z_x
+
+        # ── Correção 1 (auditoria 2026-09) ──────────────────────────────────
+        # Antes, Z0 da fonte era SEMPRE forçado igual a Z1 neste modo,
+        # mesmo quando a concessionária informa Scc0 (curto monofásico) ou
+        # Z0 separadamente no boletim de curto-circuito — o que é comum em
+        # redes de distribuição brasileiras. Isso podia super ou subestimar
+        # Icc1φ/Icc2φ-terra na barra de entrega. Agora o usuário pode
+        # informar Z0 (e Z2) separadamente quando a concessionária os fornece.
+        z0_dif = st.checkbox(
+            "Concessionaria informou Z0 (e/ou Z2) diferente de Z1",
+            value=False, key="z0_dif_concessionaria",
+            help="Marque se o boletim de curto-circuito da concessionaria trouxer "
+                 "Scc0 (monofasico) ou Z0/Z2 separados de Z1. Caso contrario, "
+                 "mantem-se a aproximacao conservadora Z2=Z0=Z1.",
+        )
+        if z0_dif:
+            zc1, zc2 = st.columns(2)
+            z_r0 = zc1.number_input(
+                "R0 da concessionaria (Ohm)", value=float(z_r), min_value=0.0,
+                step=0.0001, format="%.6f", key="z_r0_scc",
+                help="Se nao informado pela concessionaria, deixe igual a R1 (Z0=Z1).",
+            )
+            z_x0 = zc2.number_input(
+                "X0 da concessionaria (Ohm)", value=float(z_x), min_value=0.0,
+                step=0.0001, format="%.6f", key="z_x0_scc",
+            )
+            z_r2, z_x2 = z_r, z_x  # Z2=Z1 permanece válido p/ rede de transmissão (IEC 60909 §3.2)
+            _zmag0 = math.sqrt(z_r0 ** 2 + z_x0 ** 2)
+            st.caption(f"|Z0|={_zmag0:.4f} Ohm (informado separadamente da concessionaria)")
+        else:
+            z_r2, z_x2 = z_r, z_x
+            z_r0, z_x0 = z_r, z_x
 
     else:  # Z1 e Z0 diretos (Ohm)
         st.caption(
@@ -195,6 +246,10 @@ st.markdown("### 🔗 Elementos da Rede")
 ELEM_TYPES = ["linha", "cabo", "transformador", "barra", "gerador", "motor",
               "carga", "disjuntor", "seccionadora", "alimentador"]
 
+# Ligações de transformador reconhecidas pelo engine (engine/domain/element_types.py
+# TrafoConnection) e pela tabela IEC 60909 Tab.4 de bloqueio de seq. zero.
+TRAFO_CONNECTION_OPTIONS = ["Yg-Yg", "Yg-D", "D-Yg", "D-D", "Y-Y"]
+
 # Monta DataFrame com dados do banco (ou vazio)
 def _elements_to_df(elements: list) -> pd.DataFrame:
     rows = []
@@ -215,6 +270,14 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
             "Trafo(kVA)": float(e.trafo_kva or 0.0),
             "%Z_trafo": float(e.trafo_z_percent or 0.0),
             "%Z0_trafo": float(e.trafo_z0_percent or 0.0),
+            # Correção (achado 2.1.3): ligação do trafo nunca aparecia na
+            # grade — o campo já existia no banco/engine, mas a UI sempre
+            # enviava o default "Yg-Yg", tornando impossível modelar um
+            # trafo Yg-D (bloqueio de Z0/Icc1φ) sem editar o banco direto.
+            "Ligação Trafo": str(
+                (e.trafo_connection.value if hasattr(e.trafo_connection, "value") else e.trafo_connection)
+                or "Yg-Yg"
+            ),
             "V_sec(kV)": float(e.trafo_voltage_sec_kv or 0.0),
             "notas": str(e.notes or ""),
         })
@@ -234,6 +297,7 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
                 "X1(Ohm/km)": 0.0,
                 "Trafo(kVA)": 0.0,
                 "%Z_trafo": 0.0,
+                "Ligação Trafo": "Yg-Yg",
                 "V_sec(kV)": 0.0,
                 "notas": "",
             })
@@ -265,6 +329,11 @@ col_config = {
     "%Z_trafo": st.column_config.NumberColumn("%Z_trafo", format="%.2f", width="small"),
     "%Z0_trafo": st.column_config.NumberColumn("%Z0_trafo", format="%.2f", width="small",
                                             help="%Z0 do transformador. 0 = igual %Z1."),
+    "Ligação Trafo": st.column_config.SelectboxColumn(
+        "Ligação Trafo", options=TRAFO_CONNECTION_OPTIONS, width="small",
+        help="Ligação AT-BT do transformador (IEC 60909 Tab.4). Yg-D/D-Yg/D-D/Y-Y "
+             "BLOQUEIAM Z0 (Icc1φ = 0 a jusante). Padrão distribuição MT Brasil: Yg-D.",
+    ),
     "V_sec(kV)": st.column_config.NumberColumn("V_sec(kV)", format="%.3f", width="small"),
     "notas": st.column_config.TextColumn("Notas", width="medium"),
 }
@@ -306,6 +375,7 @@ if add_row_clicked:
         "Trafo(kVA)": 0.0,
         "%Z_trafo": 0.0,
         "%Z0_trafo": 0.0,
+        "Ligação Trafo": "Yg-Yg",
         "V_sec(kV)": 0.0,
         "notas": "",
     }])
@@ -332,6 +402,7 @@ def _df_to_element_dicts(df: pd.DataFrame) -> list[dict]:
             "trafo_kva": float(row["Trafo(kVA)"] or 0),
             "trafo_z_percent": float(row["%Z_trafo"] or 0),
             "trafo_z0_percent": float(row.get("%Z0_trafo") or 0),
+            "trafo_connection": str(row.get("Ligação Trafo") or "Yg-Yg"),
             "trafo_voltage_sec_kv": float(row["V_sec(kV)"] or 0),
             "r0_ohm_km": float(row.get("R0(Ohm/km)") or 0),
             "x0_ohm_km": float(row.get("X0(Ohm/km)") or 0),
@@ -351,6 +422,7 @@ if save_clicked:
             z_r2=float(z_r2), z_x2=float(z_x2),
             z_r0=float(z_r0), z_x0=float(z_x0),
             relay_curve=relay_curve,
+            neutral_grounding=neutral_grounding,
         )
         st.success("✅ Elementos salvos com sucesso!")
     except Exception as e:
@@ -380,7 +452,8 @@ if calc_clicked or st.session_state.get("_recalc"):
                          z_r=float(z_r), z_x=float(z_x), scc_mva=float(scc_mva),
                          z_r2=float(z_r2), z_x2=float(z_x2),
                          z_r0=float(z_r0), z_x0=float(z_x0),
-                         relay_curve=relay_curve)
+                         relay_curve=relay_curve,
+                         neutral_grounding=neutral_grounding)
         except Exception:
             pass
 
@@ -401,6 +474,7 @@ if calc_clicked or st.session_state.get("_recalc"):
             relay_curve_type=relay_curve,
             voltage_factor_c=float(study.voltage_factor_c),
             conductor_temp_c=float(study.conductor_temp_c),
+            neutral_grounding=neutral_grounding,
         )
 
         elem_inputs = []
@@ -450,6 +524,13 @@ if calc_clicked or st.session_state.get("_recalc"):
                 loop.close()
 
                 st.session_state["last_result"] = result
+                # Correção (relatório "Z zeradas"): o botão "Gerar Relatório"
+                # roda em um clique/rerun separado do cálculo e não tinha mais
+                # acesso a `elem_inputs`/`system_input` (variáveis locais deste
+                # bloco) — por isso o relatório sempre recebia elements=[] /
+                # system=None. Persistindo aqui em session_state.
+                st.session_state["last_elem_inputs"] = elem_inputs
+                st.session_state["last_system_input"] = system_input
                 # ── Painel de diagnóstico pós-cálculo ─────────────────────────
                 n_sc  = len(result.short_circuit_results)
                 n_rel = len(result.relay_settings)
@@ -686,6 +767,34 @@ if result:
 # ─── Botão Relatório Técnico Word ────────────────────────────────────────────
 if result:
     st.markdown("---")
+    st.markdown("### 📄 Relatório Técnico Word (IEC 60909)")
+
+    # ── Correção: os campos abaixo (cliente, CREA, empresa, etc.) usam as
+    # MESMAS chaves que engine/reports/relatorio_protecao.py efetivamente lê
+    # (info.get("engenheiro"...), ("crea"...), ("empresa"...) etc.). Antes,
+    # o dicionário `study_info` enviado usava chaves diferentes (ex.:
+    # "responsavel" em vez de "engenheiro"), então o relatório SEMPRE
+    # exibia os valores genéricos de fallback do gerador, mesmo quando o
+    # usuário estava logado com nome/dados preenchidos. Nenhum dado é
+    # inventado aqui — os campos ficam em branco ("---") até o usuário
+    # preencher; não há valor "chutado" para CREA, empresa-cliente, etc.
+    with st.expander("📋 Dados do documento (cabeçalho, capa e responsável técnico)", expanded=False):
+        di1, di2 = st.columns(2)
+        rt_nome = di1.text_input(
+            "Responsável Técnico (nome)",
+            value=(st.session_state.user.get("full_name", "") if st.session_state.user else ""),
+            key="rt_nome",
+        )
+        rt_crea = di2.text_input("CREA / CFE", value="", key="rt_crea", placeholder="CREA-SP 123456")
+        rt_empresa = di1.text_input("Empresa", value="BK Engenharia e Tecnologia", key="rt_empresa")
+        rt_cargo = di2.text_input("Cargo", value="Engenheiro Eletricista", key="rt_cargo")
+        rt_telefone = di1.text_input("Telefone", value="", key="rt_telefone")
+        rt_email = di2.text_input("E-mail", value="", key="rt_email")
+        rt_cliente = di1.text_input("Cliente", value="", key="rt_cliente")
+        rt_local = di2.text_input("Local / Unidade", value="", key="rt_local")
+        rt_concessionaria = di1.text_input("Concessionária", value=getattr(study, "utility_name", "") or "", key="rt_concessionaria")
+        rt_doc_code = di2.text_input("Código do Documento", value=f"BK-EP-{str(study.id)[:8].upper()}", key="rt_doc_code")
+
     if st.button("📄 Gerar Relatório Técnico (Word / IEC 60909)", use_container_width=False):
         with st.spinner("Gerando relatório Word…"):
             try:
@@ -693,22 +802,42 @@ if result:
                 import datetime as _dt
                 study_info = {
                     "numero": str(study.id)[:8].upper(),
+                    "doc_code": rt_doc_code or f"BK-EP-{str(study.id)[:8].upper()}",
                     "projeto": st.session_state.get("current_project_name", "—"),
+                    "cliente": rt_cliente or "---",
+                    "local": rt_local or "---",
+                    "concessionaria": rt_concessionaria or "---",
+                    "tensao_entrega": f"{float(study.v_base_kv):.1f} kV",
                     "revisao": "R0",
                     "data": _dt.date.today().strftime("%d/%m/%Y"),
-                    "responsavel": (
-                        st.session_state.user.get("full_name", "Engenheiro Responsável")
-                        if st.session_state.user else "—"
-                    ),
-                    "tensao_kv": float(study.v_base_kv),
-                    "s_base_mva": float(study.s_base_mva),
-                    "freq_hz": float(study.frequency_hz),
-                    "c_fator": float(study.voltage_factor_c),
+                    "elaborado": rt_nome or "Engenharia BK",
+                    "engenheiro": rt_nome or "Engenheiro Responsável",
+                    "crea": rt_crea or "CREA-XX / XXXXXX-D",
+                    "empresa": rt_empresa or "BK Engenharia e Tecnologia",
+                    "cargo": rt_cargo or "Engenheiro Eletricista",
+                    "telefone": rt_telefone or "---",
+                    "email": rt_email or "---",
+                    "voltage_factor_c": float(study.voltage_factor_c),
                 }
+                # Correção (relatório "Z zeradas"): antes `elements=` recebia
+                # result.short_circuit_results (objetos ElementResult DE
+                # SAÍDA, sem trafo_z_percent/r1_ohm_km/etc.) e `system=None`
+                # — por isso as Seções 4 (dados de entrada) e 5 (impedâncias)
+                # saíam com "---"/zeros. Agora usa os dados de ENTRADA reais,
+                # persistidos em session_state no momento do cálculo.
+                real_elements = st.session_state.get("last_elem_inputs") or []
+                real_system = st.session_state.get("last_system_input")
+                if not real_elements or real_system is None:
+                    st.warning(
+                        "⚠️ Dados de entrada da última execução não encontrados em memória "
+                        "(a sessão pode ter sido reiniciada). Clique em **CALCULAR** novamente "
+                        "antes de gerar o relatório, para que as Seções 4 e 5 (dados de entrada "
+                        "e impedâncias) sejam preenchidas corretamente."
+                    )
                 buf = gerar_relatorio_protecao(
                     study_info=study_info,
-                    system=None,
-                    elements=result.short_circuit_results,
+                    system=real_system,
+                    elements=real_elements,
                     sc_results=result.short_circuit_results,
                     ct_results=result.ct_sizing,
                     vt_results=result.vt_sizing,

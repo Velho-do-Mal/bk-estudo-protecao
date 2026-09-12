@@ -314,6 +314,7 @@ def save_elements(
     z_x0: float = 0.0,
     relay_curve: str = "EI",
     xr_ratio: float = 10.0,
+    neutral_grounding: str = "isolado",
 ) -> None:
     """
     Substitui todos os elementos do estudo e atualiza impedância de fonte.
@@ -361,6 +362,8 @@ def save_elements(
         study.z_source_x0_ohm = float(z_x0)
         if hasattr(study, "relay_curve_type"):
             study.relay_curve_type = relay_curve
+        if hasattr(study, "neutral_grounding"):
+            study.neutral_grounding = neutral_grounding
 
         # Remove e re-insere elementos
         db.execute(delete(NetworkElement).where(NetworkElement.study_id == study_id))

@@ -626,6 +626,20 @@ class CalculatorResult:
     icc_peak_ka: float
     kappa_factor: float
     icc_3ph_lv_ka: float
+    # ── Correção (auditoria 2026-09): Z2 real (antes descartado — Z2=Z1 era
+    #    aproximado apenas na exibição do relatório, não no cálculo) ──
+    bus_from: str = ""
+    z2_ohm: complex = 0j
+    # ── Correção: distinção explícita "Z0 = ∞ (bloqueado por Yg-D/D-D/etc.)"
+    #    vs "Z0 = 0 calculado" — antes ambos viravam complex(0,0) e eram
+    #    indistinguíveis a jusante (relatório, UI, análise de sensibilidade) ──
+    z0_blocked: bool = False
+    # ── Correção 3 (Ikmín, c=C_MIN=0,95 — IEC 60909 Tab.1): correntes mínimas
+    #    de curto-circuito, exigidas para verificação de sensibilidade dos
+    #    relés (IEC 60909 §3.2; Kindermann Cap.3 — Ip ≤ 0,8×I"k2_min) ──
+    icc_3ph_min_ka: float = 0.0
+    icc_2ph_min_ka: float = 0.0
+    icc_1ph_min_ka: Optional[float] = None
     warnings: list = field(default_factory=list)
     assumptions: list = field(default_factory=list)
     is_valid: bool = True
@@ -648,16 +662,33 @@ class IEC60909Calculator:
         z_bus: dict = {}   # barra → SequenceImpedances (Ω na base daquela barra)
         v_bus: dict = {}   # barra → tensão nominal [kV]
 
+        # ── Nota sobre mascaramento de topologia (relacionado à Correção 4) ──
+        # Qualquer bus_from que não corresponda ao bus_to de NENHUM outro
+        # elemento é automaticamente tratado como uma entrada direta da
+        # fonte (comportamento intencional para redes com múltiplos
+        # alimentadores em paralelo saindo da mesma fonte). O problema: isso
+        # é INDISTINGUÍVEL de um erro de digitação no bus_from (ex.:
+        # "QGBT1 " com espaço, ou "QGTB1" trocado) — nesses casos o elemento
+        # seria calculado como se estivesse ligado diretamente à fonte,
+        # silenciosamente, produzindo um resultado plausível porém errado.
+        # Como não é possível diferenciar as duas situações apenas pelos
+        # dados (a UI não tem um campo explícito "ligado à fonte"), o motor
+        # não pode bloquear este caso como faz no ValueError abaixo — mas
+        # registra um aviso rastreável em CADA elemento afetado, para que o
+        # erro fique visível ao usuário em vez de mascarado.
         bus_to_set = {getattr(e, 'bus_to', '') for e in self.elements if getattr(e, 'bus_to', '')}
+        seeded_from_source: set = set()
         for e in self.elements:
             bf = getattr(e, 'bus_from', '')
             if bf and bf not in bus_to_set:
                 z_bus.setdefault(bf, z_src)
                 v_bus.setdefault(bf, study.v_base_kv)
+                seeded_from_source.add(bf)
         if not z_bus and self.elements:
             bf0 = getattr(self.elements[0], 'bus_from', 'P0') or 'P0'
             z_bus[bf0] = z_src
             v_bus[bf0] = study.v_base_kv
+            seeded_from_source.add(bf0)
 
         results = []
         done: set = set()
@@ -712,15 +743,41 @@ class IEC60909Calculator:
                 # Icc lado BT = Icc_AT × (V_AT/V_BT) = IEC 60909 eq. trafo
                 icc3_lv = round(icc3 * (v_icc / v_sec), 4) if (is_trafo and v_sec > 0 and icc3 > 0) else 0.0
 
+                # ── Correção 3: Ikmín (c = C_MIN = 0,95 — IEC 60909 Tab.1) ──
+                # Necessário para verificação de sensibilidade dos relés
+                # (IEC 60909 §3.2 / Kindermann Cap.3): a sensibilidade deve
+                # ser verificada na CONDIÇÃO MÍNIMA de curto, não na máxima.
+                icc3_min = _calc_icc_3f(v_icc, z_for_icc.z1, C_MIN)
+                icc2_min = _calc_icc_2f(icc3_min)
+                icc1_min = _calc_icc_1f(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, C_MIN)
+
+                elem_warnings: list = []
+                if bf in seeded_from_source:
+                    elem_warnings.append(
+                        f"AVISO DE TOPOLOGIA: bus_from='{bf}' do elemento '{elem.code}' não "
+                        "corresponde ao bus_to de nenhum outro elemento cadastrado — foi "
+                        "interpretado como uma ENTRADA DIRETA DA FONTE (uso normal em "
+                        "alimentadores paralelos saindo da mesma barra de origem). Se este "
+                        "elemento deveria estar em série após outro elemento, confira a "
+                        "grafia exata de bus_from/bus_to (maiúsculas/espaços incluídos): "
+                        "um erro de digitação aqui faz o cálculo ignorar silenciosamente a "
+                        "impedância da rede a montante."
+                    )
+
                 results.append(CalculatorResult(
-                    element_code=elem.code, bus_name=bt,
+                    element_code=elem.code, bus_name=bt, bus_from=bf,
                     z1_ohm=z_for_icc.z1,
+                    z2_ohm=z_for_icc.z2,
                     z0_ohm=z_for_icc.z0 if z_for_icc.z0 is not None else complex(0, 0),
+                    z0_blocked=(z_for_icc.z0 is None),
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2,
                     icc_1ph_ka=icc1 if icc1 is not None else 0.0,
                     icc_2ph_ground_ka=_calc_icc_2f_ground(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, c),
                     icc_peak_ka=ip,
                     kappa_factor=kappa, icc_3ph_lv_ka=icc3_lv, is_valid=True,
+                    icc_3ph_min_ka=icc3_min, icc_2ph_min_ka=icc2_min,
+                    icc_1ph_min_ka=icc1_min,
+                    warnings=elem_warnings,
                 ))
                 # Resultado explícito no lado BT para transformadores
                 if is_trafo and v_sec > 0 and icc3_lv > 0:
@@ -730,28 +787,52 @@ class IEC60909Calculator:
                         _i2bt = _calc_icc_2f(_i3bt)
                         _i1bt = _calc_icc_1f(v_sec, _zbt.z1, _zbt.z2, _zbt.z0, c)
                         _ipbt, _kbt, _ = _calc_ip(_i3bt, _zbt.z1)
+                        _i3bt_min = _calc_icc_3f(v_sec, _zbt.z1, C_MIN)
+                        _i2bt_min = _calc_icc_2f(_i3bt_min)
+                        _i1bt_min = _calc_icc_1f(v_sec, _zbt.z1, _zbt.z2, _zbt.z0, C_MIN)
                         results.append(CalculatorResult(
                             element_code=elem.code + "_BT",
-                            bus_name=bt + "_BT",
+                            bus_name=bt + "_BT", bus_from=bt,
                             z1_ohm=_zbt.z1,
+                            z2_ohm=_zbt.z2,
                             z0_ohm=_zbt.z0 if _zbt.z0 is not None else complex(0, 0),
+                            z0_blocked=(_zbt.z0 is None),
                             icc_3ph_ka=_i3bt, icc_2ph_ka=_i2bt,
                             icc_1ph_ka=_i1bt if _i1bt is not None else 0.0,
                             icc_2ph_ground_ka=_calc_icc_2f_ground(v_sec, _zbt.z1, _zbt.z2, _zbt.z0, c),
                             icc_peak_ka=_ipbt,
                             kappa_factor=_kbt, icc_3ph_lv_ka=0.0, is_valid=True,
+                            icc_3ph_min_ka=_i3bt_min, icc_2ph_min_ka=_i2bt_min,
+                            icc_1ph_min_ka=_i1bt_min,
                             warnings=[f"Secundario BT ({v_sec:.3f} kV) do trafo {elem.code}"],
                         ))
                 done.add(elem.code)
                 progressed = True
             if not progressed:
-                for elem in self.elements:
-                    if elem.code not in done:
-                        bf = getattr(elem, 'bus_from', '') or 'P0'
-                        if bf not in z_bus:
-                            z_bus[bf] = z_src
-                            v_bus[bf] = study.v_base_kv
-                        break
+                # ── Correção 4: antes, um elemento com bus_from não alcançado
+                # pelo BFS era silenciosamente "religado" à fonte (z_bus[bf] =
+                # z_src), produzindo um resultado de curto-circuito PLAUSÍVEL
+                # PORÉM ERRADO (ignora a impedância real da rede a montante),
+                # sem qualquer aviso ao usuário. Isso viola a exigência de
+                # nunca mascarar erro de topologia. Agora o erro é explícito. ──
+                pendentes = [
+                    (elem.code, getattr(elem, 'bus_from', '') or '(vazio)')
+                    for elem in self.elements if elem.code not in done
+                ]
+                if pendentes:
+                    lista = "; ".join(f"'{cod}' (bus_from='{bf}')" for cod, bf in pendentes)
+                    barras_disponiveis = sorted(z_bus.keys())
+                    raise ValueError(
+                        "ERRO DE TOPOLOGIA DA REDE — cálculo interrompido (nenhuma "
+                        "aproximação foi aplicada): o(s) elemento(s) a seguir têm "
+                        f"'bus_from' que não corresponde a nenhuma barra alcançável "
+                        f"a partir da fonte pelo método BFS: {lista}. "
+                        f"Barras alcançáveis até o momento: {barras_disponiveis}. "
+                        "Verifique se o campo 'bus_from' de cada elemento corresponde "
+                        "exatamente (mesma grafia/maiúsculas) ao 'bus_to' do elemento "
+                        "anterior na cadeia, ou ao ponto de entrega da fonte."
+                    )
+                break
         return results
 
 
