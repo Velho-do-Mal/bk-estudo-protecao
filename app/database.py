@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -22,21 +23,57 @@ from app.config import get_settings
 
 settings = get_settings()
 
+
+def _normalize_async_database_url(raw_url: str) -> str:
+    """
+    Normaliza DATABASE_URL para uso com create_async_engine():
+
+    1. Provedores como Neon fornecem strings "postgresql://..." (sem
+       driver) — o SQLAlchemy resolveria isso para psycopg2, que é
+       SÍNCRONO e quebra create_async_engine(). Promove para
+       "postgresql+asyncpg://...".
+    2. Neon também inclui "?sslmode=require" na connection string —
+       convenção do libpq/psycopg. O driver asyncpg não reconhece
+       'sslmode', apenas 'ssl'. Traduz um para o outro para não quebrar
+       a conexão em produção.
+    """
+    if raw_url.startswith("sqlite"):
+        return raw_url
+
+    url = make_url(raw_url)
+    if url.drivername == "postgresql":
+        url = url.set(drivername="postgresql+asyncpg")
+
+    if url.drivername == "postgresql+asyncpg" and "sslmode" in url.query:
+        # asyncpg aceita o MESMO valor de sslmode (disable/allow/prefer/
+        # require/verify-ca/verify-full) via SSLMode.parse(), só que sob a
+        # chave 'ssl' — não interpreta 'sslmode' quando os parâmetros
+        # chegam como kwargs estruturados (só quando embutido numa DSN
+        # crua), que é como o SQLAlchemy monta a chamada.
+        query = dict(url.query)
+        query.setdefault("ssl", query.pop("sslmode"))
+        url = url.set(query=query)
+
+    return url.render_as_string(hide_password=False)
+
+
+_ASYNC_DATABASE_URL = _normalize_async_database_url(settings.DATABASE_URL)
+
 # Engine assíncrono — parâmetros diferem por driver
-_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+_is_sqlite = _ASYNC_DATABASE_URL.startswith("sqlite")
 
 if _is_sqlite:
     # SQLite não suporta pool com múltiplas conexões — usa StaticPool
     from sqlalchemy.pool import StaticPool
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        _ASYNC_DATABASE_URL,
         echo=settings.DEBUG,
         poolclass=StaticPool,
     )
 else:
     # PostgreSQL / Neon
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        _ASYNC_DATABASE_URL,
         echo=settings.DEBUG,
         pool_pre_ping=True,
         pool_size=10,

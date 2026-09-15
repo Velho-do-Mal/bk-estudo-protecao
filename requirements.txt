@@ -13,7 +13,10 @@ jinja2>=3.1.4
 # ─── Banco de dados ───────────────────────────────────────────────────────────
 sqlalchemy>=2.0.40
 alembic>=1.14.0
-pg8000>=1.31.0            # PostgreSQL sync — puro Python, zero compilação C
+pg8000>=1.31.0            # PostgreSQL sync — usado só em run_migrations_sync()
+asyncpg>=0.30.0           # PostgreSQL async — exigido por create_async_engine()
+                          # em produção (DATABASE_URL=postgresql+asyncpg://...);
+                          # pg8000 não tem dialeto assíncrono no SQLAlchemy.
 aiosqlite>=0.20.0         # SQLite async (dev local)
 
 # ─── Autenticação ─────────────────────────────────────────────────────────────
