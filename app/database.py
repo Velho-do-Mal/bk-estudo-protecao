@@ -171,6 +171,12 @@ def run_migrations_sync() -> None:
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_r0_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x0_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS relay_curve_type VARCHAR(20) DEFAULT 'EI'",
+        # Z2/Z0 do gerador síncrono (IEC 60909 §3.6.1 Tab.13) — colunas novas
+        # em app/studies/models.py::NetworkElement, adicionadas a uma tabela
+        # que já existia em produção antes destes campos serem criados.
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_x2_percent FLOAT DEFAULT 0.0",
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_x0_percent FLOAT DEFAULT 0.0",
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_grounding VARCHAR(20) DEFAULT 'isolado'",
     ]
     cur = conn.cursor()
     for stmt in stmts:

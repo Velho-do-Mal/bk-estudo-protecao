@@ -35,6 +35,15 @@ class ElementInput(BaseModel):
     gen_xpp_percent: float = 0.0
     gen_connection: str = "Y"
     gen_neutral_z_ohm: float = 0.0
+
+    # Z2 (sequência negativa) e Z0 (sequência zero) do gerador síncrono —
+    # IEC 60909:2016 §3.6.1, Tab.13. 0 = usar X"d como aproximação de X2
+    # (conservador). gen_grounding controla se Z0 contribui: 'isolado' =
+    # não contribui (Z0=∞); 'solido' = Z0=jX0; 'resistencia' = Z0=Rn+jX0
+    # (usa gen_neutral_z_ohm acima como Rn).
+    gen_x2_percent: float = 0.0
+    gen_x0_percent: float = 0.0
+    gen_grounding: str = "isolado"
     motor_s_mva: float = 0.0
     motor_xpp_percent: float = 0.0
     motor_connection: str = "Y"

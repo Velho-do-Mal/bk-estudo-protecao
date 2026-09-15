@@ -36,15 +36,15 @@
           <input type="number" x-model.number="source.scc_mva" step="1" min="0" @input="calcZFromScc()" placeholder="ex: 500" class="input mono">
         </div>
         <div class="field" style="margin-bottom:0;">
-          <label>R_fonte [&Omega;] <span class="hint">(seq. positiva)</span></label>
+          <label>R1_fonte [&Omega;] <span class="hint">(seq. positiva)</span></label>
           <input type="number" x-model.number="source.z_r" step="0.0001" class="input mono">
         </div>
         <div class="field" style="margin-bottom:0;">
-          <label>X_fonte [&Omega;] <span class="hint">(seq. positiva)</span></label>
+          <label>X1_fonte [&Omega;] <span class="hint">(seq. positiva)</span></label>
           <input type="number" x-model.number="source.z_x" step="0.0001" class="input mono">
         </div>
         <div class="field" style="margin-bottom:0;">
-          <label>|Z_fonte| [&Omega;]</label>
+          <label>|Z1_fonte| [&Omega;]</label>
           <div class="input mono" style="background:var(--card); font-weight:700; color:var(--bk-700);" x-text="zFonteMag.toFixed(4)"></div>
         </div>
       </div>
@@ -54,6 +54,36 @@
           (X/R = 10 assumido — típico rede de distribuição MT)
         </span>
         <span x-show="!source.scc_mva || source.scc_mva <= 0" class="text-soft">Informe Scc da concessionária OU os valores R e X diretamente</span>
+      </div>
+
+      <div style="border-top:1px dashed var(--bk-200); margin-top:12px; padding-top:12px;">
+        <p class="text-xs mb-2" style="font-weight:700; color:var(--bk-700);">
+          Z2 (sequência negativa) e Z0 (sequência zero) da fonte
+          <span style="font-weight:500; color:var(--ink-soft);">— opcional; deixe em 0 para usar a aproximação padrão IEC 60909</span>
+        </p>
+        <div class="field-grid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="field" style="margin-bottom:0;">
+            <label>R2_fonte [&Omega;] <span class="hint">(0 = Z2=Z1)</span></label>
+            <input type="number" x-model.number="source.z_r2" step="0.0001" placeholder="0" class="input mono">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>X2_fonte [&Omega;] <span class="hint">(0 = Z2=Z1)</span></label>
+            <input type="number" x-model.number="source.z_x2" step="0.0001" placeholder="0" class="input mono">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>R0_fonte [&Omega;] <span class="hint">(0 = Z0=Z1)</span></label>
+            <input type="number" x-model.number="source.z_r0" step="0.0001" placeholder="0" class="input mono">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>X0_fonte [&Omega;] <span class="hint">(0 = Z0=Z1)</span></label>
+            <input type="number" x-model.number="source.z_x0" step="0.0001" placeholder="0" class="input mono">
+          </div>
+        </div>
+        <p class="text-xs text-soft mt-2">
+          Z2 ≈ Z1 é uma aproximação válida do IEC 60909 para redes de transmissão/distribuição (fonte vista como rede,
+          não como máquina síncrona). Z0 real da concessionária deve ser solicitado no ponto de entrega — usar Z0=Z1
+          sem confirmar é uma hipótese conservadora, não um dado de projeto.
+        </p>
       </div>
     </div>
   </div>
@@ -112,7 +142,7 @@
     </div>
 
     <div class="card-body tight scroll-x">
-      <table class="rede" style="min-width:1750px;">
+      <table class="rede" style="min-width:1900px;">
         <thead>
           <tr>
             <th style="width:32px; text-align:center;">#</th>
@@ -129,7 +159,9 @@
             <th style="width:64px;">X&#8321; [&Omega;/km]</th>
             <th style="width:80px;">Trafo [kVA]</th>
             <th style="width:56px;">%Z</th>
+            <th style="width:56px;" title="Impedância de sequência zero do trafo, em % — vazio/0 usa a regra da ligação (Tab.4 IEC 60909)">%Z0</th>
             <th style="width:64px;">Vsec [kV]</th>
+            <th style="width:56px; text-align:center;" title="Dados de gerador/motor (S, X&quot;d, X2, X0, aterramento)">Detalhes</th>
             <th class="result-col" style="width:80px;">Z&#8321; acum [&Omega;]</th>
             <th class="result-col" style="width:80px;">Icc3&phi; [kA]</th>
             <th class="result-col" style="width:80px;">Icc2&phi; [kA]</th>
@@ -140,7 +172,7 @@
         </thead>
         <tbody>
           <template x-for="(row, idx) in rows" :key="row._uid">
-            <tr :style="!row.is_active ? 'opacity:.5' : (row._has_warning ? 'background:var(--warn-bg)' : '')">
+          <tr :style="!row.is_active ? 'opacity:.5' : (row._has_warning ? 'background:var(--warn-bg)' : '')">
               <td class="text-center text-xs text-soft" x-text="idx + 1"></td>
               <td><input type="text" x-model="row.code" :placeholder="'E' + (idx+1)"></td>
               <td><input type="text" x-model="row.bus_from" class="bus-from" placeholder="P0 (auto)" title="Barra de origem. Elementos com o mesmo valor aqui são PARALELOS."></td>
@@ -167,7 +199,16 @@
               <td><input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.trafo_kva" step="1" min="0" placeholder="0"></td>
               <td><input type="number" x-model.number="row.trafo_z_percent" step="0.01" min="0" max="30" placeholder="6.0"></td>
+              <td><input type="number" x-model.number="row.trafo_z0_percent" step="0.01" min="0" max="30" placeholder="—" title="Vazio = usa a regra padrão pela ligação (Tab.4 IEC 60909)"></td>
               <td><input type="number" x-model.number="row.trafo_voltage_sec_kv" step="0.01" min="0" placeholder="0.380"></td>
+              <td class="text-center">
+                <button x-show="row.element_type === 'gerador' || row.element_type === 'motor'"
+                        @click="row._expanded = !row._expanded"
+                        type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;"
+                        :style="row._expanded ? 'background:var(--bk-100);' : ''"
+                        x-text="row._expanded ? '▲' : '▼'"></button>
+                <span x-show="row.element_type !== 'gerador' && row.element_type !== 'motor'" class="text-soft">—</span>
+              </td>
 
               <td class="text-center mono" style="background:var(--bk-100); font-weight:700; color:var(--bk-700);" x-text="row._z1_mag ? row._z1_mag.toFixed(4) : '—'"></td>
               <td class="text-center mono" style="font-weight:700;"
@@ -177,6 +218,65 @@
               <td class="text-center mono text-soft" x-text="row._icc1ph ? row._icc1ph.toFixed(3) : '—'"></td>
               <td class="text-center mono text-soft" x-text="row._icc_peak ? row._icc_peak.toFixed(3) : '—'"></td>
               <td class="text-center"><button @click="removeRow(idx)" style="border:none;background:none;color:var(--line);cursor:pointer;font-weight:700;">&times;</button></td>
+            </tr>
+          </template>
+
+          <!-- Linha de detalhes de Gerador/Motor — template separado (não aninhado no
+               de cima) porque um <template x-for> só pode ter UM elemento raiz; duas
+               <tr> por iteração exigiriam dois loops paralelos sobre o mesmo array. -->
+          <template x-for="(row, idx) in rows" :key="row._uid + '-detail'">
+            <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor')" x-cloak
+                style="background:var(--bk-50, #f0f7fb);">
+              <td></td>
+              <td colspan="22" style="padding:10px 14px;">
+                <template x-if="row.element_type === 'gerador'">
+                  <div class="field-grid" style="grid-template-columns:repeat(6,1fr); gap:10px;">
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">S subtransitória [MVA]</label>
+                      <input type="number" x-model.number="row.gen_s_sub_mva" step="0.1" min="0" placeholder="0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">X"d [%] <span class="hint">seq. positiva</span></label>
+                      <input type="number" x-model.number="row.gen_xpp_percent" step="0.1" min="0" placeholder="15.0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">X2 [%] <span class="hint">0 = usa X"d</span></label>
+                      <input type="number" x-model.number="row.gen_x2_percent" step="0.1" min="0" placeholder="0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">X0 [%] <span class="hint">0 = não contribui</span></label>
+                      <input type="number" x-model.number="row.gen_x0_percent" step="0.1" min="0" placeholder="0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">Aterramento do neutro</label>
+                      <select x-model="row.gen_grounding" class="select">
+                        <option value="isolado">Isolado (Z0=∞)</option>
+                        <option value="solido">Sólido (Z0=jX0)</option>
+                        <option value="resistencia">Resistência (Z0=Rn+jX0)</option>
+                      </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0;" x-show="row.gen_grounding === 'resistencia'">
+                      <label class="text-xs">Rn [&Omega;] <span class="hint">resistor de neutro</span></label>
+                      <input type="number" x-model.number="row.gen_neutral_z_ohm" step="0.01" min="0" placeholder="0" class="input mono">
+                    </div>
+                  </div>
+                </template>
+                <template x-if="row.element_type === 'motor'">
+                  <div class="field-grid" style="grid-template-columns:repeat(6,1fr); gap:10px;">
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">S do motor [MVA]</label>
+                      <input type="number" x-model.number="row.motor_s_mva" step="0.01" min="0" placeholder="0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">X" [%] <span class="hint">0 = usa 16,7% (típico NEMA)</span></label>
+                      <input type="number" x-model.number="row.motor_xpp_percent" step="0.1" min="0" placeholder="16.7" class="input mono">
+                    </div>
+                  </div>
+                  <p class="text-xs text-soft mt-2" style="margin-bottom:0;">
+                    Motores de indução: Z2=Z1 (IEC 60909 §3.8) e Z0=∞ (neutro não aterrado) — sem campos adicionais.
+                  </p>
+                </template>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -427,6 +527,10 @@ function networkGrid() {
       scc_mva: {{ study.short_circuit_mva_source or 0 }},
       z_r: {{ study.z_source_r_ohm or 0 }},
       z_x: {{ study.z_source_x_ohm or 0 }},
+      z_r2: {{ study.z_source_r2_ohm or 0 }},
+      z_x2: {{ study.z_source_x2_ohm or 0 }},
+      z_r0: {{ study.z_source_r0_ohm or 0 }},
+      z_x0: {{ study.z_source_x0_ohm or 0 }},
     },
 
     rows: [],
@@ -490,15 +594,20 @@ function networkGrid() {
         x0_ohm_km: e.x0_ohm_km || null,
         trafo_kva: e.trafo_kva || 0,
         trafo_z_percent: e.trafo_z_percent || 0,
+        trafo_z0_percent: e.trafo_z0_percent || null,
         trafo_connection: e.trafo_connection || 'Yg-Yg',
         trafo_voltage_sec_kv: e.trafo_voltage_sec_kv || 0,
         gen_s_sub_mva: e.gen_s_sub_mva || 0,
         gen_xpp_percent: e.gen_xpp_percent || 0,
+        gen_x2_percent: e.gen_x2_percent || 0,
+        gen_x0_percent: e.gen_x0_percent || 0,
+        gen_grounding: e.gen_grounding || 'isolado',
+        gen_neutral_z_ohm: e.gen_neutral_z_ohm || 0,
         motor_s_mva: e.motor_s_mva || 0,
         motor_xpp_percent: e.motor_xpp_percent || 0,
         is_active: e.is_active !== false,
         _icc3ph: null, _icc2ph: null, _icc1ph: null, _icc_peak: null,
-        _z1_mag: null, _has_warning: false,
+        _z1_mag: null, _has_warning: false, _expanded: false,
       };
     },
 
@@ -510,11 +619,13 @@ function networkGrid() {
         bus_from: `P${n}`, bus_to: `P${n+1}`, has_protection: true,
         voltage_kv: this.studyParams.v_base_kv, length_km: 0,
         cable_name: '', r1_ohm_km: 0, x1_ohm_km: 0, r0_ohm_km: null, x0_ohm_km: null,
-        trafo_kva: 0, trafo_z_percent: 0, trafo_connection: 'Yg-Yg', trafo_voltage_sec_kv: 0,
-        gen_s_sub_mva: 0, gen_xpp_percent: 0, motor_s_mva: 0, motor_xpp_percent: 0,
+        trafo_kva: 0, trafo_z_percent: 0, trafo_z0_percent: null, trafo_connection: 'Yg-Yg', trafo_voltage_sec_kv: 0,
+        gen_s_sub_mva: 0, gen_xpp_percent: 0, gen_x2_percent: 0, gen_x0_percent: 0,
+        gen_grounding: 'isolado', gen_neutral_z_ohm: 0,
+        motor_s_mva: 0, motor_xpp_percent: 0,
         is_active: true,
         _icc3ph: null, _icc2ph: null, _icc1ph: null, _icc_peak: null,
-        _z1_mag: null, _has_warning: false,
+        _z1_mag: null, _has_warning: false, _expanded: false,
       });
     },
 
@@ -560,6 +671,10 @@ function networkGrid() {
             elements: this.rows.filter(r => r.is_active),
             z_source_r_ohm: this.source.z_r,
             z_source_x_ohm: this.source.z_x,
+            z_source_r2_ohm: this.source.z_r2 || 0,
+            z_source_x2_ohm: this.source.z_x2 || 0,
+            z_source_r0_ohm: this.source.z_r0 || 0,
+            z_source_x0_ohm: this.source.z_x0 || 0,
             scc_mva: this.source.scc_mva || null,
           }),
         });
@@ -609,6 +724,10 @@ function networkGrid() {
           fault_time_s: this.studyParams.fault_time_s,
           z_source_r_ohm: parseFloat(this.source.z_r) || 0,
           z_source_x_ohm: parseFloat(this.source.z_x) || 0,
+          z_source_r2_ohm: parseFloat(this.source.z_r2) || 0,
+          z_source_x2_ohm: parseFloat(this.source.z_x2) || 0,
+          z_source_r0_ohm: parseFloat(this.source.z_r0) || 0,
+          z_source_x0_ohm: parseFloat(this.source.z_x0) || 0,
           primary_connection: 'Yg',
           k_generator: 1.0,
           k_motor: 1.0,
@@ -631,10 +750,15 @@ function networkGrid() {
           x0_ohm_km: r.x0_ohm_km ? parseFloat(r.x0_ohm_km) : null,
           trafo_kva: parseFloat(r.trafo_kva) || 0,
           trafo_z_percent: parseFloat(r.trafo_z_percent) || 0,
+          trafo_z0_percent: r.trafo_z0_percent ? parseFloat(r.trafo_z0_percent) : null,
           trafo_connection: r.trafo_connection || 'Yg-Yg',
           trafo_voltage_sec_kv: parseFloat(r.trafo_voltage_sec_kv) || 0,
           gen_s_sub_mva: parseFloat(r.gen_s_sub_mva) || 0,
           gen_xpp_percent: parseFloat(r.gen_xpp_percent) || 0,
+          gen_x2_percent: parseFloat(r.gen_x2_percent) || 0,
+          gen_x0_percent: parseFloat(r.gen_x0_percent) || 0,
+          gen_grounding: r.gen_grounding || 'isolado',
+          gen_neutral_z_ohm: parseFloat(r.gen_neutral_z_ohm) || 0,
           motor_s_mva: parseFloat(r.motor_s_mva) || 0,
           motor_xpp_percent: parseFloat(r.motor_xpp_percent) || 0,
           nominal_current_a: 0,

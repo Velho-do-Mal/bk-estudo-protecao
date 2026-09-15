@@ -13,7 +13,16 @@ impresso, mas a tabela "users" nunca existiu de verdade, causando
 """
 import asyncio
 import app.models_registry  # noqa: F401 — registra User, Company, Project, Study, etc. no Base.metadata
-from app.database import create_all_tables
+from app.database import create_all_tables, run_migrations_sync
 
 asyncio.run(create_all_tables())
 print("TABELAS_OK")
+
+# run_migrations_sync() é o ALTER TABLE ... ADD COLUMN IF NOT EXISTS idempotente
+# (app/database.py) para colunas novas em tabelas que JÁ existiam em produção
+# antes dos campos serem adicionados aos modelos — create_all_tables() acima
+# só cria tabelas ausentes, nunca adiciona coluna em tabela existente. Esta
+# função só era chamada pelo app Streamlit antigo (st_utils.py); o app FastAPI
+# novo nunca a invocava, por isso é preciso rodá-la aqui manualmente também.
+run_migrations_sync()
+print("MIGRACOES_OK")

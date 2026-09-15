@@ -82,7 +82,12 @@
       <ul style="margin:6px 0 0; padding-left:18px; line-height:1.7;">
         <li>Fator c<sub>max</sub> = 1,10 conforme IEC 60909-0:2016 Tabela 1 para sistemas ≤ 1 kV e > 1 kV</li>
         <li>Análise de rede radial — metodologia de superposição não implementada nesta versão</li>
-        <li>Impedância de sequência zero: Z0 = 3×Z1 (assumido para cabos sem dados disponíveis)</li>
+        <li>Impedância de sequência zero de linhas/cabos sem R0/X0 informados: estimativa conservadora de Carson
+          (Z0 &asymp; 3,5&times;R1 + j&times;3&times;X1 para linha aérea; 3,5&times;R1 + j&times;3,5&times;X1 para cabo) —
+          informe R0/X0 reais do condutor sempre que disponíveis, na aba "Rede Elétrica"</li>
+        <li>Fonte (concessionária), transformador e gerador: Z2 e Z0 usam aproximação conservadora (Z2=Z0=Z1) apenas
+          quando não informados — preencha os campos de Z2/Z0/aterramento nas telas de "Rede Elétrica" para usar
+          o dado real do projeto em vez da aproximação</li>
         <li>X/R = 10 assumido para transformadores sem dados de fábrica</li>
         <li>Motores: reatância subtransitória X" = 16,7% assumida (IEC 60909-0 §4.3.4)</li>
         <li>Os resultados requerem validação por engenheiro habilitado — CREA/CFM</li>

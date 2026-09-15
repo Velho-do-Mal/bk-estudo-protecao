@@ -2,7 +2,16 @@
 engine/short_circuit/iec60909.py
 =================================
 Motor de cálculo de curto-circuito — IEC 60909:2016
-BK Engenharia e Tecnologia — v2.2
+BK Engenharia e Tecnologia — v2.3
+
+CORREÇÃO (v2.3):
+  gen_x2_percent, gen_x0_percent e gen_grounding do gerador síncrono agora
+  chegam de fato ao motor (o adaptador IEC60909Calculator._elem_seq() os
+  descartava silenciosamente antes, mesmo já existindo na dataclass
+  NetworkElement — Z2 caía sempre no default X"d e Z0 sempre em "isolado").
+  Também corrigido: Z0 do gerador com neutro aterrado por RESISTÊNCIA agora
+  soma Rn (gen_neutral_z_ohm) à parte real — antes retornava só j×X0,
+  subestimando Z0 e superestimando Icc1φ para essa configuração.
 
 CORREÇÃO PRINCIPAL (v2.2):
   O motor anterior usava apenas Z1 e assumia Z2 = Z1 e Z0 = 3×Z1 globalmente.
@@ -111,6 +120,7 @@ class NetworkElement:
     gen_x2_percent: float = 0.0       # X2  [%] — seq. negativa (0 = usar X"d)
     gen_x0_percent: float = 0.0       # X0  [%] — seq. zero (0 = não contribui)
     gen_grounding: str = "isolado"    # "solido", "resistencia", "isolado"
+    gen_neutral_z_ohm: float = 0.0    # Rn — usado quando gen_grounding="resistencia"
 
     # Motor de indução
     motor_s_mva: float = 0.0
@@ -292,6 +302,11 @@ def _seq_gerador(elem: NetworkElement) -> SequenceImpedances:
         Se neutro isolado: Z0 = ∞ (não contribui para Icc1φ)
         Se neutro aterrado sólido: Z0 = j×X0
         Se neutro por resistência: Z0 = R_n + j×X0
+        (CORREÇÃO: antes desta versão, R_n [gen_neutral_z_ohm] era descrito
+        aqui na docstring mas NUNCA somado ao Z0 — o código sempre retornava
+        Z0 puramente reativo mesmo com "resistencia" selecionado, o que
+        SUBESTIMA a impedância de sequência zero e SUPERESTIMA Icc1φ para
+        geradores aterrados por resistência de neutro.)
 
     Nota: KG fator de correção = Un / (Ug × (1 + x"d × sin(φ)))
     Como Ug ≈ Un na maioria dos casos, KG ≈ 1 / (1 + x"d × sin(φ))
@@ -316,7 +331,15 @@ def _seq_gerador(elem: NetworkElement) -> SequenceImpedances:
     grounding = elem.gen_grounding.lower().strip()
     if grounding == "isolado" or elem.gen_x0_percent <= 0:
         z0 = None  # neutro isolado — não contribui para Icc1φ
+    elif grounding == "resistencia":
+        # Z0 = Rn + j×X0 — Rn é o valor de resistência de aterramento do
+        # neutro em Ω (elem.gen_neutral_z_ohm), NÃO em % — é um componente
+        # físico real instalado no neutro, não uma impedância em pu/base
+        # do gerador (IEC 60909 §3.6.1).
+        x0 = (elem.gen_x0_percent / 100.0) * z_base
+        z0 = complex(elem.gen_neutral_z_ohm, x0)
     else:
+        # "solido" (ou qualquer outro valor não reconhecido — default seguro)
         z0 = complex(0.0, (elem.gen_x0_percent / 100.0) * z_base)
 
     return SequenceImpedances(z1=z1, z2=z2, z0=z0)
@@ -1031,6 +1054,10 @@ class IEC60909Calculator:
             trafo_xr_ratio=10.0,
             gen_s_sub_mva=getattr(elem, 'gen_s_sub_mva', 0.0) or 0.0,
             gen_xpp_percent=getattr(elem, 'gen_xpp_percent', 0.0) or 0.0,
+            gen_x2_percent=getattr(elem, 'gen_x2_percent', 0.0) or 0.0,
+            gen_x0_percent=getattr(elem, 'gen_x0_percent', 0.0) or 0.0,
+            gen_grounding=getattr(elem, 'gen_grounding', None) or 'isolado',
+            gen_neutral_z_ohm=getattr(elem, 'gen_neutral_z_ohm', 0.0) or 0.0,
             motor_s_mva=getattr(elem, 'motor_s_mva', 0.0) or 0.0,
             motor_xpp_percent=getattr(elem, 'motor_xpp_percent', 16.7) or 16.7,
             is_active=True,

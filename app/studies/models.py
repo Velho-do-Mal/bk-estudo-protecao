@@ -177,6 +177,12 @@ class NetworkElement(Base):
     gen_connection: Mapped[Optional[str]] = mapped_column(String(10), default="Y")
     gen_neutral_z_ohm: Mapped[float] = mapped_column(Float, default=0.0)
 
+    # Z2 (seq. negativa) e Z0 (seq. zero) do gerador — IEC 60909 §3.6.1 Tab.13
+    # 0 = usar X"d como X2 (conservador). gen_grounding: isolado|solido|resistencia
+    gen_x2_percent: Mapped[float] = mapped_column(Float, default=0.0)
+    gen_x0_percent: Mapped[float] = mapped_column(Float, default=0.0)
+    gen_grounding: Mapped[Optional[str]] = mapped_column(String(20), default="isolado")
+
     # Motor subtransiente
     motor_s_mva: Mapped[float] = mapped_column(Float, default=0.0)
     motor_xpp_percent: Mapped[float] = mapped_column(Float, default=0.0)

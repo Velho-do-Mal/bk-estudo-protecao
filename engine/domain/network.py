@@ -154,6 +154,12 @@ class NetworkElement:
     gen_connection: str = "Y"
     gen_neutral_z_ohm: float = 0.0
 
+    # Z2/Z0 do gerador — IEC 60909:2016 §3.6.1, Tab.13 (ver
+    # app/calculations/schemas.py::ElementInput para a documentação completa)
+    gen_x2_percent: float = 0.0
+    gen_x0_percent: float = 0.0
+    gen_grounding: str = "isolado"
+
     # Motor subtransiente
     motor_s_mva: float = 0.0
     motor_xpp_percent: float = 0.0

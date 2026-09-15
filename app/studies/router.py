@@ -59,6 +59,9 @@ def _element_to_dict(e: NetworkElement) -> dict:
         "gen_xpp_percent": e.gen_xpp_percent,
         "gen_connection": e.gen_connection,
         "gen_neutral_z_ohm": e.gen_neutral_z_ohm,
+        "gen_x2_percent": e.gen_x2_percent,
+        "gen_x0_percent": e.gen_x0_percent,
+        "gen_grounding": e.gen_grounding or "isolado",
         "motor_s_mva": e.motor_s_mva,
         "motor_xpp_percent": e.motor_xpp_percent,
         "motor_connection": e.motor_connection,
@@ -88,6 +91,13 @@ def _study_to_dict(s: Study) -> dict:
         "voltage_factor_c": s.voltage_factor_c,
         "conductor_temp_c": s.conductor_temp_c,
         "neutral_grounding": s.neutral_grounding or "isolado",
+        "z_source_r_ohm": s.z_source_r_ohm,
+        "z_source_x_ohm": s.z_source_x_ohm,
+        "z_source_r2_ohm": s.z_source_r2_ohm,
+        "z_source_x2_ohm": s.z_source_x2_ohm,
+        "z_source_r0_ohm": s.z_source_r0_ohm,
+        "z_source_x0_ohm": s.z_source_x0_ohm,
+        "short_circuit_mva_source": s.short_circuit_mva_source,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -156,6 +166,12 @@ async def api_update_study(
         "conductor_temp_c": "conductor_temp_c",
         "fault_time_s": "fault_time_s",
         "neutral_grounding": "neutral_grounding",
+        "z_source_r_ohm": "z_source_r_ohm",
+        "z_source_x_ohm": "z_source_x_ohm",
+        "z_source_r2_ohm": "z_source_r2_ohm",
+        "z_source_x2_ohm": "z_source_x2_ohm",
+        "z_source_r0_ohm": "z_source_r0_ohm",
+        "z_source_x0_ohm": "z_source_x0_ohm",
         # aliases usados pelos templates
         "system_voltage_kv": "v_base_kv",
         "system_power_mva": "s_base_mva",
@@ -200,6 +216,18 @@ async def api_save_elements(
         if "z_source_x_ohm" in data:
             study.z_source_x_ohm = float(data["z_source_x_ohm"] or 0)
 
+    # Z2 (seq. negativa) e Z0 (seq. zero) da fonte — independentes do cálculo
+    # a partir de Scc acima, pois Scc da concessionária normalmente só dá a
+    # magnitude de Z1; Z2/Z0 reais vêm de dado explícito da concessionária.
+    if "z_source_r2_ohm" in data:
+        study.z_source_r2_ohm = float(data["z_source_r2_ohm"] or 0)
+    if "z_source_x2_ohm" in data:
+        study.z_source_x2_ohm = float(data["z_source_x2_ohm"] or 0)
+    if "z_source_r0_ohm" in data:
+        study.z_source_r0_ohm = float(data["z_source_r0_ohm"] or 0)
+    if "z_source_x0_ohm" in data:
+        study.z_source_x0_ohm = float(data["z_source_x0_ohm"] or 0)
+
     # Remove elementos existentes e re-insere
     await db.execute(delete(NetworkElement).where(NetworkElement.study_id == study_id))
 
@@ -237,10 +265,15 @@ async def api_save_elements(
             x0_ohm_km=_f(ed.get("x0_ohm_km")) if ed.get("x0_ohm_km") else None,
             trafo_kva=_f(ed.get("trafo_kva")),
             trafo_z_percent=_f(ed.get("trafo_z_percent")),
+            trafo_z0_percent=_f(ed.get("trafo_z0_percent")) if ed.get("trafo_z0_percent") else None,
             trafo_connection=ed.get("trafo_connection") or "Yg-Yg",
             trafo_voltage_sec_kv=_f(ed.get("trafo_voltage_sec_kv")),
             gen_s_sub_mva=_f(ed.get("gen_s_sub_mva")),
             gen_xpp_percent=_f(ed.get("gen_xpp_percent")),
+            gen_x2_percent=_f(ed.get("gen_x2_percent")),
+            gen_x0_percent=_f(ed.get("gen_x0_percent")),
+            gen_grounding=ed.get("gen_grounding") or "isolado",
+            gen_neutral_z_ohm=_f(ed.get("gen_neutral_z_ohm")),
             motor_s_mva=_f(ed.get("motor_s_mva")),
             motor_xpp_percent=_f(ed.get("motor_xpp_percent")),
             is_active=bool(ed.get("is_active", True)),
