@@ -142,7 +142,7 @@
     </div>
 
     <div class="card-body tight scroll-x">
-      <table class="rede" style="min-width:1900px;">
+      <table class="rede" style="min-width:2050px;">
         <thead>
           <tr>
             <th style="width:32px; text-align:center;">#</th>
@@ -157,6 +157,8 @@
             <th style="width:96px;">Condutor</th>
             <th style="width:64px;">R&#8321; [&Omega;/km]</th>
             <th style="width:64px;">X&#8321; [&Omega;/km]</th>
+            <th style="width:64px;" title="Sequência zero real do condutor — vazio usa a estimativa de Carson (IEC 60909-0, aproximação conservadora). Preenchido automaticamente ao digitar um Condutor cadastrado (ABNT NBR 8523/14049/11849/7286/11301/7288/6251), ou informe o valor real do fabricante/catálogo.">R&#8320; [&Omega;/km]</th>
+            <th style="width:64px;" title="Sequência zero real do condutor — vazio usa a estimativa de Carson (IEC 60909-0, aproximação conservadora). Preenchido automaticamente ao digitar um Condutor cadastrado (ABNT NBR 8523/14049/11849/7286/11301/7288/6251), ou informe o valor real do fabricante/catálogo.">X&#8320; [&Omega;/km]</th>
             <th style="width:80px;">Trafo [kVA]</th>
             <th style="width:56px;">%Z</th>
             <th style="width:56px;" title="Impedância de sequência zero do trafo, em % — vazio/0 usa a regra da ligação (Tab.4 IEC 60909)">%Z0</th>
@@ -197,6 +199,8 @@
               <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" placeholder="ex: 95CAL, CAA-185"></td>
               <td><input type="number" x-model.number="row.r1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
+              <td><input type="number" x-model.number="row.r0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3,5×R1 aérea / 3,5×R1 cabo)"></td>
+              <td><input type="number" x-model.number="row.x0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3×X1 aérea / 3,5×X1 cabo)"></td>
               <td><input type="number" x-model.number="row.trafo_kva" step="1" min="0" placeholder="0"></td>
               <td><input type="number" x-model.number="row.trafo_z_percent" step="0.01" min="0" max="30" placeholder="6.0"></td>
               <td><input type="number" x-model.number="row.trafo_z0_percent" step="0.01" min="0" max="30" placeholder="—" title="Vazio = usa a regra padrão pela ligação (Tab.4 IEC 60909)"></td>
@@ -228,7 +232,7 @@
             <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor')" x-cloak
                 style="background:var(--bk-50, #f0f7fb);">
               <td></td>
-              <td colspan="22" style="padding:10px 14px;">
+              <td colspan="24" style="padding:10px 14px;">
                 <template x-if="row.element_type === 'gerador'">
                   <div class="field-grid" style="grid-template-columns:repeat(6,1fr); gap:10px;">
                     <div class="field" style="margin-bottom:0;">
