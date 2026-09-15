@@ -404,6 +404,7 @@ def save_elements(
                 motor_s_mva=_f(ed.get("motor_s_mva")),
                 motor_xpp_percent=_f(ed.get("motor_xpp_percent")),
                 is_active=bool(ed.get("is_active", True)),
+                has_protection=bool(ed.get("has_protection", True)),
                 notes=str(ed.get("notes", "")),
             )
             db.add(elem)

@@ -640,9 +640,139 @@ class CalculatorResult:
     icc_3ph_min_ka: float = 0.0
     icc_2ph_min_ka: float = 0.0
     icc_1ph_min_ka: Optional[float] = None
+    # ── Correção (divisor de corrente — retaguarda de ramos em paralelo,
+    #    IEC 60909 §3.2 / Kindermann Cap.3) ── Ver docstring completa em
+    #    app/calculations/schemas.py::ElementResult. Resumo: quando este
+    #    elemento tem irmãos com o MESMO (bus_from, bus_to) — ex.: dois
+    #    trafos ou duas linhas realmente em paralelo entre as mesmas 2
+    #    barras — os campos icc_*_ka/icc_*_min_ka acima são o cenário
+    #    "sozinho" (N-1). Os campos abaixo são a corrente REAL deste ramo
+    #    específico com todos os irmãos em serviço (regra do divisor de
+    #    corrente por admitância). Iguais aos campos acima quando não há
+    #    irmãos paralelos (grupo de tamanho 1).
+    icc_3ph_shared_ka: float = 0.0
+    icc_2ph_shared_ka: float = 0.0
+    icc_1ph_shared_ka: Optional[float] = None
+    icc_3ph_shared_min_ka: float = 0.0
+    icc_2ph_shared_min_ka: float = 0.0
+    icc_1ph_shared_min_ka: Optional[float] = None
+    is_parallel_group: bool = False
+    parallel_group_size: int = 1
     warnings: list = field(default_factory=list)
     assumptions: list = field(default_factory=list)
     is_valid: bool = True
+
+
+def _apply_parallel_current_divider(
+    results: list,
+    branch_z: dict,
+    branch_v: dict,
+    branch_key: dict,
+    c: float,
+) -> None:
+    """
+    Pós-processamento do cálculo IEC 60909 — divisor de corrente para ramos
+    VERDADEIRAMENTE em paralelo (mesmo bus_from E mesmo bus_to — ex.: 2
+    trafos ou 2 linhas entre as mesmas 2 barras; NÃO se aplica a
+    alimentadores que apenas compartilham a barra de origem mas têm
+    bus_to diferentes — esses já são caminhos radiais independentes e não
+    precisam de divisor).
+
+    POR QUÊ: sem isto, icc_*_ka (calculado por ramo "sozinho" — cenário
+    N-1, o(s) irmão(s) fora de serviço) seria usado por engano também
+    para verificar a SENSIBILIDADE da proteção de RETAGUARDA daquele
+    ramo — o que SUPERESTIMA a sensibilidade real, pois com todos os
+    irmãos em serviço a corrente por ramo é MENOR (dividida entre eles).
+    Referência: IEC 60909 §3.2 (configuração de rede mais desfavorável —
+    aqui, "todos em serviço" é o pior caso para SENSIBILIDADE, enquanto
+    "N-1" é o pior caso para CAPACIDADE de disjuntor/TC) + Kindermann
+    Cap.3 (Ip ≤ 0,8×I"k2_mín verificado na condição real do curto).
+
+    MÉTODO (componentes simétricas): as três redes de sequência (1, 2, 0)
+    são circuitos lineares independentes, conectados apenas no ponto de
+    falta. Em CADA rede de sequência, a corrente total que entra no grupo
+    paralelo se divide entre os ramos na proporção da admitância de cada
+    um (regra do divisor de corrente):
+        I_ramo_i = I_total × Y_i / ΣY_j ,   Y = 1/|Z|
+    A sequência zero usa sua PRÓPRIA razão de admitância — um ramo que
+    bloqueia Z0 (ex.: trafo Yg-D) entra com Y0=0, ou seja, não recebe
+    NENHUMA corrente de falta à terra (correto fisicamente: ele não tem
+    caminho de retorno pela terra). A sequência positiva governa Icc3φ e
+    Icc2φ (Icc2φ = √3/2×Icc3φ, eq. 45, já usado pelo motor); a sequência
+    zero governa Icc1φ (Icc1φ = 3×I0, eq. 52).
+    """
+    results_by_code = {r.element_code: r for r in results}
+
+    groups: dict = {}
+    for code, key in branch_key.items():
+        groups.setdefault(key, []).append(code)
+
+    for key, codes in groups.items():
+        n = len(codes)
+        for code in codes:
+            r = results_by_code.get(code)
+            if r is not None:
+                r.is_parallel_group = n > 1
+                r.parallel_group_size = n
+        if n < 2:
+            continue  # sem irmãos — valor "dividido" já é igual ao "sozinho"
+
+        v_icc = branch_v[codes[0]]  # mesma barra de origem => mesma tensão
+
+        z_par = branch_z[codes[0]]
+        for code in codes[1:]:
+            z_par = _parallel_z(z_par, branch_z[code])
+
+        icc3_total = _calc_icc_3f(v_icc, z_par.z1, c)
+        icc2_total = _calc_icc_2f(icc3_total)
+        icc1_total = _calc_icc_1f(v_icc, z_par.z1, z_par.z2, z_par.z0, c)
+        icc3_total_min = _calc_icc_3f(v_icc, z_par.z1, C_MIN)
+        icc2_total_min = _calc_icc_2f(icc3_total_min)
+        icc1_total_min = _calc_icc_1f(v_icc, z_par.z1, z_par.z2, z_par.z0, C_MIN)
+
+        y1 = {
+            code: (1.0 / abs(branch_z[code].z1) if abs(branch_z[code].z1) > 1e-12 else 0.0)
+            for code in codes
+        }
+        y0 = {
+            code: (
+                1.0 / abs(branch_z[code].z0)
+                if (branch_z[code].z0 is not None and abs(branch_z[code].z0) > 1e-12)
+                else 0.0
+            )
+            for code in codes
+        }
+        y1_total = sum(y1.values())
+        y0_total = sum(y0.values())
+
+        for code in codes:
+            r = results_by_code.get(code)
+            if r is None:
+                continue
+            ratio1 = (y1[code] / y1_total) if y1_total > 1e-12 else (1.0 / n)
+            ratio0 = (y0[code] / y0_total) if y0_total > 1e-12 else 0.0
+
+            r.icc_3ph_shared_ka = round(icc3_total * ratio1, 4)
+            r.icc_2ph_shared_ka = round(icc2_total * ratio1, 4)
+            r.icc_3ph_shared_min_ka = round(icc3_total_min * ratio1, 4)
+            r.icc_2ph_shared_min_ka = round(icc2_total_min * ratio1, 4)
+
+            if icc1_total is not None and y0_total > 1e-12:
+                r.icc_1ph_shared_ka = round(icc1_total * ratio0, 4)
+            else:
+                r.icc_1ph_shared_ka = 0.0
+            if icc1_total_min is not None and y0_total > 1e-12:
+                r.icc_1ph_shared_min_ka = round(icc1_total_min * ratio0, 4)
+            else:
+                r.icc_1ph_shared_min_ka = 0.0
+
+            r.warnings.append(
+                f"RAMO EM PARALELO ({n}x, bus_from='{key[0]}', bus_to='{key[1]}'): "
+                f"Icc3φ 'sozinho/N-1' = {r.icc_3ph_ka:.3f} kA (dimensionar disjuntor/"
+                f"TC); Icc3φ 'dividida/todos em serviço' = {r.icc_3ph_shared_ka:.3f} kA "
+                "(verificar sensibilidade da proteção de retaguarda — Kindermann Cap.3, "
+                "IEC 60909 §3.2)."
+            )
 
 
 # ─── IEC60909Calculator ───────────────────────────────────────────────────────
@@ -692,6 +822,14 @@ class IEC60909Calculator:
 
         results = []
         done: set = set()
+        # ── Correção (divisor de corrente — retaguarda de ramos em paralelo) ──
+        # Rastreia, por elemento, a impedância de sequência do PRÓPRIO ramo
+        # (z_for_icc — fonte→este elemento, sem combinar com irmãos) e a
+        # tensão/chave de grupo (bus_from,bus_to), para o pós-processamento
+        # do divisor de corrente logo após o loop principal.
+        branch_z: dict = {}
+        branch_v: dict = {}
+        branch_key: dict = {}
         for _ in range(len(self.elements) + 2):
             progressed = False
             for elem in self.elements:
@@ -751,6 +889,11 @@ class IEC60909Calculator:
                 icc2_min = _calc_icc_2f(icc3_min)
                 icc1_min = _calc_icc_1f(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, C_MIN)
 
+                # Guarda dados do ramo para o divisor de corrente (pós-loop)
+                branch_z[elem.code] = z_for_icc
+                branch_v[elem.code] = v_icc
+                branch_key[elem.code] = (bf, bt)
+
                 elem_warnings: list = []
                 if bf in seeded_from_source:
                     elem_warnings.append(
@@ -777,9 +920,26 @@ class IEC60909Calculator:
                     kappa_factor=kappa, icc_3ph_lv_ka=icc3_lv, is_valid=True,
                     icc_3ph_min_ka=icc3_min, icc_2ph_min_ka=icc2_min,
                     icc_1ph_min_ka=icc1_min,
+                    # Valores "divididos" — default = igual ao "sozinho" (grupo
+                    # de tamanho 1); sobrescritos no pós-processamento abaixo
+                    # para elementos com irmãos em paralelo verdadeiros.
+                    icc_3ph_shared_ka=icc3, icc_2ph_shared_ka=icc2,
+                    icc_1ph_shared_ka=icc1 if icc1 is not None else 0.0,
+                    icc_3ph_shared_min_ka=icc3_min, icc_2ph_shared_min_ka=icc2_min,
+                    icc_1ph_shared_min_ka=icc1_min,
                     warnings=elem_warnings,
                 ))
                 # Resultado explícito no lado BT para transformadores
+                # LIMITAÇÃO CONHECIDA: o divisor de corrente por ramos em
+                # paralelo (_apply_parallel_current_divider) NÃO é aplicado
+                # a este resultado "_BT" (usa direto o "sozinho" = "dividido").
+                # Motivo: exigiria refletir a corrente já dividida do lado AT
+                # através da relação de transformação de CADA trafo do grupo
+                # separadamente, o que este resultado agregado (baseado em
+                # z_bus[bt], já mesclado) não permite recuperar por ramo sem
+                # dados adicionais. Para retaguarda de trafos em paralelo, use
+                # a verificação de sensibilidade do LADO PRIMÁRIO (icc_2ph_
+                # shared_min_ka do resultado principal, não deste "_BT").
                 if is_trafo and v_sec > 0 and icc3_lv > 0:
                     _zbt = z_bus.get(bt)
                     if _zbt is not None:
@@ -833,6 +993,8 @@ class IEC60909Calculator:
                         "anterior na cadeia, ou ao ponto de entrega da fonte."
                     )
                 break
+
+        _apply_parallel_current_divider(results, branch_z, branch_v, branch_key, c)
         return results
 
 

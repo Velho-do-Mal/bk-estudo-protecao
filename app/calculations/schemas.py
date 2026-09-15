@@ -43,6 +43,11 @@ class ElementInput(BaseModel):
     nominal_current_a: float = 0.0
     is_active: bool = True
 
+    # Correção: gate de proteção por ponto — ver engine/domain/network.py
+    # (NetworkElement.has_protection) para a justificativa completa. Default
+    # True preserva o comportamento de estudos salvos antes desta correção.
+    has_protection: bool = True
+
     @field_validator("trafo_z_percent")
     @classmethod
     def validate_z_percent(cls, v: float) -> float:
@@ -138,6 +143,39 @@ class ElementResult(BaseModel):
     icc_3ph_min_ka: float = 0.0
     icc_2ph_min_ka: float = 0.0
     icc_1ph_min_ka: Optional[float] = None
+
+    # ── Correção (divisor de corrente — retaguarda de ramos em paralelo) ──
+    # Quando este elemento tem "irmãos" com o MESMO (bus_from, bus_to) —
+    # ex.: dois trafos ou duas linhas verdadeiramente em paralelo entre as
+    # mesmas duas barras — as correntes acima (icc_*_ka / icc_*_min_ka)
+    # representam o cenário "sozinho" (=N-1, o irmão fora de serviço, este
+    # ramo assume tudo). Isso é o correto para dimensionar disjuntor/TC
+    # (pior caso de corrente), mas SUPERESTIMA a corrente real que passa
+    # por este ramo quando ambos estão em serviço — o que faria a
+    # verificação de sensibilidade da proteção de retaguarda (Ip ≤ 0,8 ×
+    # I"k2_mín, Kindermann Cap.3 / IEC 60909 §3.2) parecer mais folgada do
+    # que realmente é. Os campos abaixo trazem a corrente DIVIDIDA (regra
+    # do divisor de corrente por admitância) — a fração real deste ramo
+    # quando todos os irmãos do grupo paralelo estão em serviço. Iguais aos
+    # campos "_ka"/"_min_ka" quando o elemento não tem irmãos paralelos.
+    icc_3ph_shared_ka: float = 0.0
+    icc_2ph_shared_ka: float = 0.0
+    icc_1ph_shared_ka: Optional[float] = None
+    icc_3ph_shared_min_ka: float = 0.0
+    icc_2ph_shared_min_ka: float = 0.0
+    icc_1ph_shared_min_ka: Optional[float] = None
+    is_parallel_group: bool = False
+    parallel_group_size: int = 1
+
+    # Correção (checkbox "possui proteção" por ponto): propagado aqui (a
+    # partir do NetworkElement de origem, não do resultado bruto do motor
+    # de curto-circuito, que não carrega este campo) para que o relatório
+    # (engine/reports/relatorio_protecao.py) possa identificar, na própria
+    # tabela de resultados de curto-circuito, quais pontos são "passagem"
+    # (sem TC/TP/disjuntor/relé dimensionados nas Seções 6/7) e quais têm
+    # painel de proteção dedicado. Ver engine/domain/network.py::
+    # NetworkElement.has_protection.
+    has_protection: bool = True
 
     # Alertas e hipóteses
     warnings: list[str] = []

@@ -15,6 +15,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from lxml import etree
+from engine.protection.relay_curves import get_curve
 
 _C_AZUL_ESC = "1F3864"
 _C_AZUL_MED = "2E74B5"
@@ -417,6 +418,46 @@ def _sec4(doc, system, elements):
             widths=[Cm(1.8),Cm(3.2),Cm(3.5),Cm(2.5),Cm(2.0),Cm(3.0)])
     _sp(doc,4)
 
+def _build_topology_for_report(elements):
+    """
+    Réplica leve de app/calculations/service.py::_build_relay_topology —
+    reconstrói bus_from -> [elementos] a partir da lista `elements` (dados
+    de ENTRADA, com bus_from/bus_to/has_protection) recebida por
+    gerar_relatorio_protecao. Não importa app.calculations.service (camada
+    de aplicação) a partir do motor de relatório para evitar acoplamento
+    circular — a lógica é replicada, não reaproveitada por import.
+    """
+    children_by_bus: dict = {}
+    for e in elements or []:
+        bf = getattr(e, "bus_from", "") or ""
+        if bf:
+            children_by_bus.setdefault(bf, []).append(e)
+    return children_by_bus
+
+
+def _resolve_downstream_protected_report(bus, children_by_bus, _visited=None):
+    """
+    Mesma lógica de app/calculations/service.py::_resolve_downstream_protected
+    — atravessa transparentemente elementos sem proteção própria (checkbox
+    desmarcado) para achar os relés protegidos IMEDIATAMENTE a jusante.
+    """
+    if not bus:
+        return []
+    if _visited is None:
+        _visited = set()
+    if bus in _visited:
+        return []
+    _visited.add(bus)
+    found = []
+    for child in children_by_bus.get(bus, []):
+        if getattr(child, "has_protection", True):
+            found.append(child)
+        else:
+            bt = getattr(child, "bus_to", "") or ""
+            found.extend(_resolve_downstream_protected_report(bt, children_by_bus, _visited))
+    return found
+
+
 def _sec5(doc, sc_results, system=None):
     # ── Correção (relatório "Z zeradas") ────────────────────────────────────
     # `sc_results` é uma lista de app.calculations.schemas.ElementResult
@@ -470,17 +511,57 @@ def _sec5(doc, sc_results, system=None):
         bt=getattr(r,"icc_3ph_lv_ka",0.0) or 0.0
         z0_blocked=bool(getattr(r,"z0_blocked",False))
         bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+        tem_prot = getattr(r,"has_protection",True)
         rows_i.append((getattr(r,"element_code","---"),bus_disp,
             f"{icc3:.3f}",f"{icc2:.3f}",
             f"{icc2e:.3f}" if (icc2e>0 and not z0_blocked) else "BLOQ.",
             f"{icc1:.3f}" if (icc1>0 and not z0_blocked) else "BLOQ.",
-            f"{ip:.3f}",f"{k:.3f}",f"{bt:.3f}" if bt>0 else "---"))
-    _tbl(doc,["Elem","Barra","Ik3φ (kA)","Ik2φ (kA)","IE_2LG (kA)","Ik1φ (kA)","ip (kA)","κ","Ik3-BT (kA)"],rows_i,
-        widths=[Cm(1.3),Cm(1.6),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.8),Cm(1.0),Cm(2.1)],
+            f"{ip:.3f}",f"{k:.3f}",f"{bt:.3f}" if bt>0 else "---",
+            "SIM" if tem_prot else "NÃO (passagem)"))
+    _tbl(doc,["Elem","Barra","Ik3φ (kA)","Ik2φ (kA)","IE_2LG (kA)","Ik1φ (kA)","ip (kA)","κ","Ik3-BT (kA)","Proteção?"],rows_i,
+        widths=[Cm(1.2),Cm(1.5),Cm(1.6),Cm(1.6),Cm(1.6),Cm(1.6),Cm(1.6),Cm(0.9),Cm(1.9),Cm(1.5)],
         hbg=_C_AZUL_MED,
         note="Ik3φ=trifásico; Ik2φ=bifásico (fase-fase); IE_2LG=corrente de terra na falta bifásica-terra (IEC 60909 eq.55-56); "
              "Ik1φ=monofásico (fase-terra); ip=pico assimétrico; BLOQ.=seq. zero bloqueada por trafo. "
-             "Correntes MÁXIMAS (c=1,10) — para dimensionamento de equipamentos (Seção 6).")
+             "Correntes MÁXIMAS (c=1,10) — para dimensionamento de equipamentos (Seção 6). "
+             "'Proteção?' = NÃO indica ponto de passagem SEM TC/TP/disjuntor/relé próprios (checkbox desmarcado): "
+             "continua no cálculo de curto-circuito, mas não é dimensionado nem parametrizado nas Seções 6/7 — "
+             "ver Seção 5.2.1 para o tratamento de retaguarda quando há ramos em paralelo.")
+
+    # ── Correção (divisor de corrente — retaguarda de ramos em paralelo) ──
+    grupos_paralelos = [r for r in sc_results if getattr(r,"is_parallel_group",False)]
+    if grupos_paralelos:
+        _h2(doc,"5.2.1","Ramos em Paralelo -- Corrente ISOLADA (N-1) vs. DIVIDIDA (todos em serviço)")
+        _body(doc,
+            "Elementos que compartilham a MESMA origem e o MESMO destino (bus_from E bus_to) — por exemplo, dois "
+            "transformadores ou duas linhas verdadeiramente em paralelo — não recebem sozinhos toda a corrente de "
+            "falta quando ambos estão em serviço. A IEC 60909 §3.2 exige verificar DUAS condições de rede: "
+            "(a) todos os elementos em paralelo em serviço (corrente DIVIDIDA, menor, pelo divisor de admitância "
+            "Y=1/Z de cada sequência) — usada para verificar a SENSIBILIDADE da proteção de retaguarda; e "
+            "(b) contingência N-1, um dos irmãos fora de serviço (corrente ISOLADA, maior, o ramo remanescente "
+            "assume tudo) — usada para DIMENSIONAR disjuntor/TC (pior caso de corrente/energia). Usar a corrente "
+            "isolada para checar sensibilidade SUPERESTIMARIA a capacidade de detecção real do relé.")
+        rows_par=[]
+        for r in grupos_paralelos:
+            n = getattr(r,"parallel_group_size",1)
+            i3 = getattr(r,"icc_3ph_ka",0.0) or 0.0
+            i3s = getattr(r,"icc_3ph_shared_ka",0.0) or 0.0
+            i3m = getattr(r,"icc_3ph_min_ka",0.0) or 0.0
+            i3sm = getattr(r,"icc_3ph_shared_min_ka",0.0) or 0.0
+            i1 = getattr(r,"icc_1ph_ka",0.0) or 0.0
+            i1s = getattr(r,"icc_1ph_shared_ka",None)
+            bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
+            rows_par.append((getattr(r,"element_code","---"),bus_disp,f"{n}x",
+                f"{i3:.3f}",f"{i3s:.3f}",f"{i3m:.3f}",f"{i3sm:.3f}",
+                f"{i1:.3f}",f"{i1s:.3f}" if i1s is not None else "---"))
+        _tbl(doc,["Elem","Barra","Grupo","Ik3_isolada(kA)","Ik3_dividida(kA)","Ik3_isol.mín(kA)","Ik3_div.mín(kA)","Ik1_isolada(kA)","Ik1_dividida(kA)"],
+            rows_par,widths=[Cm(1.2),Cm(1.4),Cm(1.0),Cm(1.9),Cm(1.9),Cm(1.9),Cm(1.9),Cm(1.9),Cm(1.9)],
+            hbg=_C_AZUL_MED,
+            note="'Isolada' = este ramo sozinho / contingência N-1 do irmão (dimensionamento). 'Dividida' = fração real "
+                 "deste ramo com TODOS os irmãos em serviço, pelo divisor de admitância Y=1/Z por sequência "
+                 "(sensibilidade da retaguarda). Ik1 dividido usa Y0 — ramos que bloqueiam seq. zero (ex.: trafo "
+                 "Yg-D) recebem fração ZERO da corrente de terra, corretamente.")
+
     _h2(doc,"5.3","Correntes de Curto-Circuito MINIMAS por Barra  (c = 0,95 -- IEC 60909 Tab.1)")
     _body(doc,"Correntes mínimas de curto-circuito, exigidas para verificação de sensibilidade dos ajustes de relé "
         "(IEC 60909 §3.2; Kindermann, Cap.3 — critério Ip ≤ 0,8 × I\"k2_mín). Usar a corrente MÁXIMA para "
@@ -644,19 +725,39 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
     else: _body(doc,"Resultados de disjuntores nao disponiveis.",italic=True)
     _h2(doc,"6.4","Sintese do Dimensionamento por Barra")
     if sc_results:
+        # Correção (checkbox "possui proteção" por ponto): pontos de
+        # passagem sem TC/TP/disjuntor próprios (has_protection=False) não
+        # entram nesta síntese de dimensionamento — eles continuam no
+        # cálculo de curto-circuito (Seção 5), mas não há equipamento a
+        # dimensionar ali. Ver engine/domain/network.py::NetworkElement.
+        # has_protection e app/calculations/service.py::_size_all_equipment.
+        # Correção adicional: "bus_name" não existe em ElementResult
+        # (schema real usa bus_to/bus_from) — antes sempre exibia "---".
+        elementos_sem_prot = [r for r in sc_results if not getattr(r,"has_protection",True)]
         br_series=[6.3,8,10,12.5,16,20,25,31.5,40,50,63,80,100,125]
         rows_syn=[]
         for r in sc_results:
+            if not getattr(r,"has_protection",True):
+                continue
             icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+            bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
             br_min=next((v for v in br_series if v>=icc3),icc3)
-            rows_syn.append((getattr(r,"element_code","---"),getattr(r,"bus_name","---"),
+            rows_syn.append((getattr(r,"element_code","---"),bus_disp,
                 f"{icc3:.3f} kA",f"{ip:.3f} kA",f"I_cu >= {br_min:.1f} kA","5P20 ou sup."))
-        _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","Disj. min.","Classe TC"],rows_syn,
-            widths=[Cm(1.5),Cm(2.0),Cm(2.5),Cm(2.5),Cm(4.5),Cm(3.0)],
-            note="Disjuntor minimo = proximo valor serie comercial IEC 62271-100 >= Ik3.")
+        if rows_syn:
+            _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","Disj. min.","Classe TC"],rows_syn,
+                widths=[Cm(1.5),Cm(2.0),Cm(2.5),Cm(2.5),Cm(4.5),Cm(3.0)],
+                note="Disjuntor minimo = proximo valor serie comercial IEC 62271-100 >= Ik3. "
+                     "Somente elementos com proteção própria (ver Seção 5.2, coluna 'Proteção?').")
+        else:
+            _body(doc,"Nenhum elemento com proteção própria para dimensionar.",italic=True)
+        if elementos_sem_prot:
+            codigos = ", ".join(getattr(r,"element_code","?") for r in elementos_sem_prot)
+            _nota(doc, f"Pontos de passagem SEM proteção própria (não dimensionados nesta seção, mas "
+                       f"considerados no cálculo de curto-circuito da Seção 5): {codigos}.")
     _sp(doc,4)
 
-def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None):
+def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None, elements=None):
     # ── Correção (relatório "Z zeradas") ────────────────────────────────────
     # RelaySettingOutput (schema real) não tem bus_name/relay_type/
     # pickup_current_a/pickup_multiple/time_multiplier/inst_pickup_a/
@@ -702,27 +803,76 @@ def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None):
             _nota(doc, f"ATENÇÃO: {len(_sensib_bad)} ajuste(s) reprovado(s) no critério de sensibilidade "
                        "(razão Ik_mín/Ip < mínimo exigido). Revisar pickup ou impedância da fonte antes da aprovação final.")
     else: _body(doc,"Nenhum resultado de rele disponivel.",italic=True)
-    _h2(doc,"7.3","Analise de Seletividade -- Margens CTI")
-    if relay_results and len(relay_results)>=2:
-        rows_cti=[]
-        for i in range(len(relay_results)-1):
-            rp=relay_results[i]; rr=relay_results[i+1]
-            tp_raw=getattr(rp,"t_at_icc_3ph_s",None); tr_raw=getattr(rr,"t_at_icc_3ph_s",None)
-            if tp_raw is None or tr_raw is None:
+    _h2(doc,"7.3","Analise de Seletividade -- Verificacao REAL da Coordenacao (Retaguarda x Jusante)")
+    # ── Correção (coordenação real por graduação de TMS): a versão anterior
+    # desta seção comparava PARES CONSECUTIVOS na lista de relay_results
+    # (índice i, i+1) — uma heurística sem qualquer relação com a topologia
+    # elétrica real (dependia só da ordem de inserção dos elementos), e por
+    # isso trazia o aviso "conferir se correspondem de fato a primário/
+    # retaguarda". Agora os pares são reconstruídos a partir da MESMA
+    # topologia bus_from/bus_to usada pelo motor de coordenação
+    # (app/calculations/service.py::_build_relay_topology +
+    # _resolve_downstream_protected — atravessando transparentemente
+    # elementos sem proteção própria), e a margem é recalculada a partir do
+    # zero na corrente real da fronteira entre as duas zonas de proteção
+    # (Ik3/Ik1 do elemento de retaguarda) — os mesmos números que o TMS de
+    # cada relé foi de fato calculado para respeitar (ver Seção 7.2).
+    _body(doc,"A tabela abaixo NÃO agrupa relés pela ordem em que foram cadastrados: os pares jusante/retaguarda "
+        "são reconstruídos a partir da topologia real da rede (bus_from -> bus_to de cada elemento), atravessando "
+        "transparentemente pontos sem proteção própria (Seção 5.2, coluna 'Proteção?' = NÃO). A margem (CTI) é "
+        "recalculada aqui, de forma independente, a partir do Pickup/TMS/curva definitivos de cada relé (Seção "
+        "7.2) — funcionando como verificação cruzada do que o motor de coordenação calculou.")
+    rows_cti=[]
+    if relay_results and elements:
+        children_by_bus = _build_topology_for_report(elements)
+        relay_by_code_func: dict = {}
+        for relay in relay_results:
+            relay_by_code_func.setdefault(getattr(relay,"element_code",None), {})[getattr(relay,"ansi_function","")] = relay
+        for parent in elements:
+            if not getattr(parent,"has_protection",True):
                 continue
-            tp=float(tp_raw); tr=float(tr_raw)
-            cti=round(tr-tp,3); ok=cti>=0.20
-            rows_cti.append((getattr(rp,"element_code","---"),getattr(rr,"element_code","---"),
-                f"{getattr(rp,'icc_3ph_ka',0.0) or 0.0:.3f} kA",
-                f"{tp:.3f} s",f"{tr:.3f} s",f"{cti:.3f} s","OK" if ok else "REVISAR"))
-        if rows_cti:
-            _tbl(doc,["Primaria","Retaguarda","Ik3 falta(kA)","t_prim(s)","t_ret(s)","CTI(s)","Coord."],rows_cti,
-                widths=[Cm(2.0),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.5),Cm(2.0),Cm(2.0)],
-                note="CTI >= 0,20 s: OK. CTI < 0,20 s: revisar TMS ou Pickup. Pares consecutivos na lista de relés — "
-                     "conferir se correspondem de fato a primário/retaguarda na topologia real antes de aprovar.")
-        else:
-            _body(doc,"CTI nao calculavel — tempos de atuacao (t_at_icc_3ph_s) indisponiveis para os reles.",italic=True)
-    else: _body(doc,"CTI nao disponivel (requer >= 2 reles configurados).",italic=True)
+            parent_code = getattr(parent,"code",None)
+            parent_funcs = relay_by_code_func.get(parent_code, {})
+            children = _resolve_downstream_protected_report(getattr(parent,"bus_to",""), children_by_bus)
+            for child in children:
+                child_code = getattr(child,"code",None)
+                child_funcs = relay_by_code_func.get(child_code, {})
+                # Fase (51) e terra (51N) — mesmas funções usadas na
+                # coordenação real (ver engine/protection/relay_settings.py).
+                for func_name, icc_attr in (("51","icc_3ph_ka"), ("51N","icc_3ph_ka")):
+                    rs_parent = parent_funcs.get(func_name)
+                    rs_child = child_funcs.get(func_name)
+                    if rs_parent is None or rs_child is None:
+                        continue
+                    icc_ref = getattr(rs_parent, icc_attr, 0.0) or 0.0  # Ik na fronteira das duas zonas
+                    curve_p = get_curve(getattr(rs_parent,"curve_type","EI"))
+                    curve_c = get_curve(getattr(rs_child,"curve_type","EI"))
+                    if curve_p is None or curve_c is None or icc_ref <= 0:
+                        continue
+                    t_c = curve_c.operating_time(icc_ref, rs_child.pickup_primary_ka, rs_child.tms_suggested)
+                    t_p = curve_p.operating_time(icc_ref, rs_parent.pickup_primary_ka, rs_parent.tms_suggested)
+                    if t_c is None or t_p is None:
+                        rows_cti.append((func_name,child_code,parent_code,f"{icc_ref:.3f} kA",
+                            "—","—","—","SEM ATUAÇÃO NESTA CORRENTE"))
+                        continue
+                    cti = round(t_p - t_c, 3)
+                    ok = cti >= 0.20
+                    rows_cti.append((func_name,child_code,parent_code,f"{icc_ref:.3f} kA",
+                        f"{t_c:.3f} s",f"{t_p:.3f} s",f"{cti:.3f} s","OK" if ok else "REVISAR"))
+    if rows_cti:
+        _tbl(doc,["Função","Jusante (primária)","Montante (retaguarda)","Ik na fronteira(kA)","t_primária(s)","t_retaguarda(s)","CTI(s)","Coord."],
+            rows_cti,widths=[Cm(1.3),Cm(2.2),Cm(2.4),Cm(2.0),Cm(1.8),Cm(1.8),Cm(1.5),Cm(2.0)],
+            note="CTI = t_retaguarda - t_primária, calculado NA CORRENTE DA FRONTEIRA (Ik do elemento de "
+                 "retaguarda — pior corrente comum às duas zonas). CTI >= 0,20 s: OK (adotado no cálculo: 0,30 s — "
+                 "ver Seção 7.1). Pares obtidos da topologia real bus_from/bus_to (não da ordem de cadastro).")
+        _cti_bad = [r for r in rows_cti if r[-1] == "REVISAR"]
+        if _cti_bad:
+            _nota(doc, f"ATENÇÃO: {len(_cti_bad)} par(es) jusante/retaguarda com margem de coordenação "
+                       "INSUFICIENTE (CTI < 0,20 s) ou sem atuação calculável na corrente de fronteira. Revisar "
+                       "TMS/Pickup dos relés envolvidos antes da aprovação final do estudo.")
+    else:
+        _body(doc,"Nenhum par jusante/retaguarda pôde ser verificado — requer elementos com bus_from/bus_to "
+            "coincidentes entre si e ajustes de relé (função 51/51N) calculados em ambos os lados.",italic=True)
     _h2(doc,"7.4","Coordenograma Tempo x Corrente")
     _body(doc,"O coordenograma apresenta as curvas Tempo x Corrente (log-log) dos reles com as correntes de falta por barra. As curvas de inrush delimitam a zona proibida de atuacao:")
     if coordenograma_b64:
@@ -836,7 +986,7 @@ def gerar_relatorio_protecao(
     _sec4(doc,system,elements or [])
     _sec5(doc,sc_results or [],system)
     _sec6(doc,ct_results or [],vt_results or [],breaker_results or [],sc_results or [])
-    _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [])
+    _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [],elements or [])
     _sec8(doc,sc_results or [],relay_results or [],system)
     _sec9(doc,sc_results or [],relay_results or [])
     _sec10(doc,study_info)

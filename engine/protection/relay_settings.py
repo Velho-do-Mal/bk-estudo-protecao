@@ -112,6 +112,19 @@ def suggest_relay_settings(
     tms_upstream: Optional[float] = None,      # TMS do dispositivo a montante
     t_upstream_at_icc_s: Optional[float] = None, # tempo do montante no Icc
     coord_margin_s: float = 0.3,               # margem de coordenação [s]
+    t_downstream_worst_s: Optional[float] = None,  # ── Correção (coordenação
+    # real por graduação de TMS) — ver módulo app/calculations/service.py::
+    # _coordinate_relay_settings. Tempo de atuação do PIOR (mais lento) relé
+    # protegido IMEDIATAMENTE A JUSANTE deste, calculado NA CORRENTE DE
+    # FALTA DESTE elemento (icc_3ph_ka/icc_1ph_ka acima) — não na corrente
+    # do jusante. Quando informado, o TMS desta função é calculado para que
+    # ESTE relé atue coord_margin_s SEGUNDOS DEPOIS do jusante mais lento
+    # (T_montante = T_jusante + margem — método clássico "de trás para
+    # frente", começando pelo relé mais remoto com o TMS mínimo prático e
+    # subindo em direção à fonte). Direção OPOSTA a t_upstream_at_icc_s
+    # (que calcula o TMS para ser MAIS RÁPIDO que uma referência a
+    # montante) — os dois parâmetros são mutuamente exclusivos; se ambos
+    # forem informados, t_downstream_worst_s tem prioridade.
 ) -> RelaySettingResult:
     """
     Sugere ajustes de relé para a função ANSI especificada.
@@ -131,6 +144,8 @@ def suggest_relay_settings(
         tms_upstream: TMS do dispositivo a montante (para coordenação)
         t_upstream_at_icc_s: tempo de atuação do montante no Icc (para Δt)
         coord_margin_s: margem de coordenação desejada [s]
+        t_downstream_worst_s: tempo do pior relé protegido a jusante, na
+            corrente de falta DESTE elemento — ver nota acima.
 
     Retorna: RelaySettingResult com ajustes sugeridos e documentação.
     """
@@ -175,7 +190,22 @@ def suggest_relay_settings(
 
         # TMS: target t ≈ 0,1 s na Icc (pickup rápido no ponto de falta)
         # Se houver dispositivo a montante: t_upstream - Δt_coord
-        if t_upstream_at_icc_s is not None:
+        if t_downstream_worst_s is not None:
+            # ── Correção (coordenação real): este relé é a RETAGUARDA —
+            # deve atuar coord_margin_s DEPOIS do pior jusante protegido,
+            # na corrente de falta deste ponto (icc_ref). Método "de trás
+            # para frente": jusante já foi calculado com TMS mínimo prático.
+            t_target = t_downstream_worst_s + coord_margin_s
+            tms = _solve_tms_for_time(t_target, icc_ref, ip, curve)
+            res.assumptions.append(
+                f"TMS calculado para coordenação com retaguarda: atuação "
+                f"{coord_margin_s:.2f}s DEPOIS do pior dispositivo protegido a "
+                f"jusante (t_jusante = {t_downstream_worst_s:.3f}s na corrente "
+                f"deste ponto = {icc_ref:.3f} kA): TMS = {tms:.3f}. "
+                "Critério: Kindermann Cap.4 / IEC 60255-151 (margem de "
+                "seletividade tempo × corrente)."
+            )
+        elif t_upstream_at_icc_s is not None:
             t_target = t_upstream_at_icc_s - coord_margin_s
             t_target = max(0.05, t_target)
             tms = _solve_tms_for_time(t_target, icc_ref, ip, curve)
@@ -184,10 +214,12 @@ def suggest_relay_settings(
                 f"(t_montante = {t_upstream_at_icc_s:.2f}s): TMS = {tms:.3f}."
             )
         else:
-            tms = 0.1  # TMS padrão conservador
+            tms = 0.1  # TMS mínimo prático — ponto mais remoto da rede (sem
+            # jusante protegido para coordenar) ou dado insuficiente.
             res.assumptions.append(
-                "TMS = 0,1 (padrão conservador — sem dispositivo montante configurado). "
-                "Ajustar após análise de coordenação."
+                "TMS = 0,1 (mínimo prático — nenhum dispositivo protegido a "
+                "jusante detectado; assume-se ponto mais remoto da cadeia de "
+                "seletividade). Ajustar após análise de coordenação completa."
             )
 
         res.tms_suggested = tms
@@ -241,14 +273,35 @@ def suggest_relay_settings(
 
         res.pickup_primary_ka = ip
         res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
-        tms = 0.05 if "50" in func else 0.1
+        is_instantaneous = "50" in func and "51" not in func
+        if is_instantaneous:
+            tms = 0.0
+            res.assumptions.append(
+                f"Ip({func}) = 10% × Icc1ph = {ip:.3f} kA. Função instantânea (sem TMS). "
+                "HIPÓTESE: sistema solidamente aterrado. "
+                "Para sistemas resistentes/isolados, reduzir para 5%."
+            )
+        elif t_downstream_worst_s is not None:
+            t_target_n = t_downstream_worst_s + coord_margin_s
+            tms = _solve_tms_for_time(t_target_n, icc_1ph_ka, ip, curve) if icc_1ph_ka > ip else 0.1
+            res.assumptions.append(
+                f"Ip({func}) = 10% × Icc1ph = {ip:.3f} kA. TMS calculado para coordenação "
+                f"com retaguarda de terra: atuação {coord_margin_s:.2f}s depois do pior "
+                f"jusante protegido (t_jusante = {t_downstream_worst_s:.3f}s na Icc1φ deste "
+                f"ponto = {icc_1ph_ka:.3f} kA): TMS = {tms:.3f}. "
+                "HIPÓTESE: sistema solidamente aterrado. "
+                "Para sistemas resistentes/isolados, reduzir para 5%."
+            )
+        else:
+            tms = 0.1
+            res.assumptions.append(
+                f"Ip({func}) = 10% × Icc1ph = {ip:.3f} kA. TMS = 0,1 (mínimo prático — "
+                "nenhum dispositivo protegido a jusante detectado). "
+                "HIPÓTESE: sistema solidamente aterrado. "
+                "Para sistemas resistentes/isolados, reduzir para 5%."
+            )
         res.tms_suggested = tms
         res.t_at_icc_1ph_s = curve.operating_time(icc_1ph_ka, ip, tms) if icc_1ph_ka > 0 else None
-        res.assumptions.append(
-            f"Ip({func}) = 10% × Icc1ph = {ip:.3f} kA. "
-            "HIPÓTESE: sistema solidamente aterrado. "
-            "Para sistemas resistentes/isolados, reduzir para 5%."
-        )
         if icc_1ph_ka > 0 and ip > 0:
             res.sensitivity_ratio = icc_1ph_ka / ip
             res.sensitivity_ok = res.sensitivity_ratio >= 1.5
@@ -286,14 +339,42 @@ def suggest_relay_settings(
         ip = max(ip_min_by_load, 0.15 * icc_ref)
         res.pickup_primary_ka = ip
         res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
-        tms = 0.1
+
+        # TMS: mesma lógica de coordenação "de trás para frente" da Função 51 —
+        # retaguarda (com qualificador direcional) deve atuar coord_margin_s
+        # depois do pior dispositivo protegido a jusante.
+        if t_downstream_worst_s is not None:
+            t_target = t_downstream_worst_s + coord_margin_s
+            tms = _solve_tms_for_time(t_target, icc_ref, ip, curve)
+            res.assumptions.append(
+                f"Ip(67) = max(1,2×I_carga, 15%×Icc3φ) = {ip:.3f} kA. "
+                f"TMS calculado para coordenação com retaguarda: atuação "
+                f"{coord_margin_s:.2f}s DEPOIS do pior dispositivo protegido a "
+                f"jusante (t_jusante = {t_downstream_worst_s:.3f}s na corrente "
+                f"deste ponto = {icc_ref:.3f} kA): TMS = {tms:.3f}. "
+                "Critério: Kindermann Cap.4 / IEC 60255-151 (margem de "
+                "seletividade tempo × corrente)."
+            )
+        elif t_upstream_at_icc_s is not None:
+            t_target = t_upstream_at_icc_s - coord_margin_s
+            t_target = max(0.05, t_target)
+            tms = _solve_tms_for_time(t_target, icc_ref, ip, curve)
+            res.assumptions.append(
+                f"Ip(67) = max(1,2×I_carga, 15%×Icc3φ) = {ip:.3f} kA. "
+                f"TMS calculado para atuação {coord_margin_s:.1f}s antes do "
+                f"montante (t_montante = {t_upstream_at_icc_s:.2f}s): TMS = {tms:.3f}."
+            )
+        else:
+            tms = 0.1
+            res.assumptions.append(
+                f"Ip(67) = max(1,2×I_carga, 15%×Icc3φ) = {ip:.3f} kA. "
+                "TMS = 0,1 (mínimo prático — nenhum dispositivo protegido a "
+                "jusante detectado; assume-se ponto mais remoto da cadeia de "
+                "seletividade). Ajustar após análise de coordenação completa."
+            )
         res.tms_suggested = tms
         res.t_at_icc_3ph_s = curve.operating_time(icc_3ph_ka, ip, tms)
         res.t_at_icc_2ph_s = curve.operating_time(icc_2ph_ka, ip, tms) if icc_2ph_ka > 0 else None
-        res.assumptions.append(
-            f"Ip(67) = max(1,2×I_carga, 15%×Icc3φ) = {ip:.3f} kA. "
-            "TMS = 0,1 (padrão conservador)."
-        )
         res.notes = (
             "ANSI 67: Sobrecorrente direcional de fase. "
             "Confirmar ângulo de polarização (típico θ = 30°–45°) com o relé. "
@@ -325,15 +406,35 @@ def suggest_relay_settings(
         res.pickup_secondary_a = ip * 1000.0 / (ct_ratio / 5.0) if ct_ratio > 0 else 0.0
         # Curva EI (Extremamente Inversa) para melhor seletividade com faltas de alta resistência
         curve_ei = get_curve("EI") or curve
-        tms = 0.05
+
+        # TMS: mesma lógica de coordenação "de trás para frente" da 51N/67 —
+        # retaguarda de terra direcional deve atuar coord_margin_s depois do
+        # pior dispositivo de terra protegido a jusante.
+        if t_downstream_worst_s is not None:
+            t_target_n = t_downstream_worst_s + coord_margin_s
+            tms = _solve_tms_for_time(t_target_n, icc_1ph_ka, ip, curve_ei) if icc_1ph_ka > ip else 0.05
+            res.assumptions.append(
+                f"Ip(67N) = 10% × Icc1φ = {ip:.4f} kA. "
+                "Curva: EI (Extremamente Inversa) — IEC 60255-151 Tabela 1. "
+                f"TMS calculado para coordenação com retaguarda de terra: atuação "
+                f"{coord_margin_s:.2f}s depois do pior jusante protegido "
+                f"(t_jusante = {t_downstream_worst_s:.3f}s na Icc1φ deste ponto = "
+                f"{icc_1ph_ka:.3f} kA): TMS = {tms:.3f}. "
+                "Hipótese: sistema solidamente aterrado. "
+                "Para sistemas isolados/resistivos, reduzir para 5% e revisar sensibilidade."
+            )
+        else:
+            tms = 0.05
+            res.assumptions.append(
+                f"Ip(67N) = 10% × Icc1φ = {ip:.4f} kA. "
+                "Curva: EI (Extremamente Inversa) — IEC 60255-151 Tabela 1. "
+                "TMS = 0,05 (mínimo prático — nenhum dispositivo de terra "
+                "protegido a jusante detectado). "
+                "Hipótese: sistema solidamente aterrado. "
+                "Para sistemas isolados/resistivos, reduzir para 5% e revisar sensibilidade."
+            )
         res.tms_suggested = tms
         res.t_at_icc_1ph_s = curve_ei.operating_time(icc_1ph_ka, ip, tms) if icc_1ph_ka > 0 else None
-        res.assumptions.append(
-            f"Ip(67N) = 10% × Icc1φ = {ip:.4f} kA. "
-            "Curva: EI (Extremamente Inversa) — IEC 60255-151 Tabela 1. "
-            "Hipótese: sistema solidamente aterrado. "
-            "Para sistemas isolados/resistivos, reduzir para 5% e revisar sensibilidade."
-        )
         res.notes = (
             "ANSI 67N: Sobrecorrente direcional à terra. "
             "Polarização por tensão residual V0 = (Va + Vb + Vc)/3 ou por corrente de sequência zero I0. "

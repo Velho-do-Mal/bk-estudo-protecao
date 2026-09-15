@@ -118,6 +118,18 @@ class NetworkElement:
     bus_from: str = ""
     bus_to: str = ""
 
+    # Correção (achado: "proteção da retaguarda"): nem todo ponto da rede
+    # tem painel de proteção dedicado (TC + TP + disjuntor + relé). Antes,
+    # o software dimensionava e parametrizava proteção para TODO elemento
+    # dos tipos linha/cabo/trafo/gerador/motor, sem exceção — o que é
+    # tecnicamente incorreto para pontos de passagem/impedância sem
+    # proteção própria. Quando False, o elemento continua entrando no
+    # cálculo de curto-circuito (necessário para o restante da rede), mas
+    # é ignorado no dimensionamento de TC/TP/disjuntor e na parametrização
+    # de relés (app/calculations/service.py). Default True para não alterar
+    # o comportamento de estudos já salvos antes desta correção.
+    has_protection: bool = True
+
     # Tensão e comprimento
     voltage_kv: float = 13.8
     length_km: float = 0.0

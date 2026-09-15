@@ -256,6 +256,7 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
     for i, e in enumerate(elements):
         rows.append({
             "ativo": bool(e.is_active),
+            "possui_proteção": bool(getattr(e, "has_protection", True)),
             "código": str(e.code or f"P{i+1}"),
             "tipo": str(e.element_type.value if hasattr(e.element_type, 'value') else e.element_type),
             "descrição": str(e.name or ""),
@@ -286,6 +287,7 @@ def _elements_to_df(elements: list) -> pd.DataFrame:
         for i in range(5):
             rows.append({
                 "ativo": True,
+                "possui_proteção": True,
                 "código": f"P{i+1}",
                 "tipo": "linha",
                 "descrição": "",
@@ -310,6 +312,14 @@ if "elements_df" not in st.session_state:
 # Configuração das colunas do data editor
 col_config = {
     "ativo": st.column_config.CheckboxColumn("✓", width="small"),
+    "possui_proteção": st.column_config.CheckboxColumn(
+        "🛡️ Proteção", width="small",
+        help="Marque se este ponto tem TC + TP + disjuntor + relé próprios. "
+             "Desmarcado: o elemento continua entrando no cálculo de curto-circuito "
+             "(necessário para o restante da rede), mas NÃO é dimensionado (TC/TP/"
+             "disjuntor) nem tem relé parametrizado — use para barras/pontos de "
+             "passagem sem painel de proteção dedicado.",
+    ),
     "código": st.column_config.TextColumn("Código", width="small"),
     "tipo": st.column_config.SelectboxColumn("Tipo", options=ELEM_TYPES, width="medium"),
     "descrição": st.column_config.TextColumn("Descrição", width="medium"),
@@ -361,6 +371,7 @@ if add_row_clicked:
     n = len(edited_df)
     new_row = pd.DataFrame([{
         "ativo": True,
+        "possui_proteção": True,
         "código": f"P{n+1}",
         "tipo": "linha",
         "descrição": "",
@@ -407,6 +418,7 @@ def _df_to_element_dicts(df: pd.DataFrame) -> list[dict]:
             "r0_ohm_km": float(row.get("R0(Ohm/km)") or 0),
             "x0_ohm_km": float(row.get("X0(Ohm/km)") or 0),
             "is_active": bool(row["ativo"]),
+            "has_protection": bool(row.get("possui_proteção", True)),
             "notes": str(row["notas"] or ""),
         })
     return result
@@ -498,6 +510,7 @@ if calc_clicked or st.session_state.get("_recalc"):
                     trafo_connection=e.get("trafo_connection", "Yg-Yg"),
                     trafo_voltage_sec_kv=e["trafo_voltage_sec_kv"],
                     is_active=True,
+                    has_protection=bool(e.get("has_protection", True)),
                 ))
             except Exception:
                 continue
@@ -584,10 +597,13 @@ if result:
                 sc_data.append({
                     "Código": r.element_code,
                     "Barra": r.bus_to,
+                    "Paralelo?": f"Sim ({r.parallel_group_size}x)" if getattr(r, "is_parallel_group", False) else "—",
                     "|Z1| (Ohm)": round(r.z1_mag_ohm, 4),
                     "Icc 3f (kA)": round(r.icc_3ph_ka, 3),
                     "Icc 2f (kA)": round(r.icc_2ph_ka, 3),
                     "Icc 1f (kA)": round(r.icc_1ph_ka, 3),
+                    "Icc 3f dividida (kA)": round(r.icc_3ph_shared_ka, 3) if getattr(r, "is_parallel_group", False) else "—",
+                    "Icc 2f mín. dividida (kA)": round(r.icc_2ph_shared_min_ka, 3) if getattr(r, "is_parallel_group", False) else "—",
                     "Ip crista (kA)": round(r.icc_peak_ka, 3),
                     "kappa": round(r.kappa_factor, 3),
                     "Icc BT 3f (kA)": round(r.icc_3ph_lv_ka, 3) if r.icc_3ph_lv_ka else "—",
@@ -607,6 +623,18 @@ if result:
                     "|Z1| (Ohm)": st.column_config.NumberColumn(format="%.4f"),
                 }
             )
+            if any(getattr(r, "is_parallel_group", False) for r in result.short_circuit_results):
+                st.caption(
+                    "🔀 **Ramos em paralelo detectados** (mesma barra de origem E de destino — "
+                    "ex.: 2 trafos ou 2 linhas entre as mesmas 2 barras). "
+                    "'Icc dividida' = corrente real por ramo com TODOS os irmãos em serviço "
+                    "(divisor de corrente por admitância) — use este valor para verificar "
+                    "sensibilidade da proteção de retaguarda daquele ramo (Kindermann Cap.3 / "
+                    "IEC 60909 §3.2: Ip ≤ 0,8×I\"k2_mín). As colunas 'Icc 3f/2f/1f' (sem "
+                    "'dividida') continuam representando o cenário N-1 (irmão fora de serviço, "
+                    "este ramo assume tudo sozinho) — use-as para dimensionar disjuntor/TC "
+                    "(pior caso de corrente)."
+                )
 
             # Alertas
             for r in result.short_circuit_results:

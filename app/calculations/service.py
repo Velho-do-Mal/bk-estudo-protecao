@@ -41,6 +41,7 @@ from engine.charts.coordenograma import (
 from engine.domain.element_types import ElementType, TrafoConnection
 from engine.domain.network import NetworkElement, SystemBase
 from engine.inrush.transformer_inrush import calculate_inrush
+from engine.protection.relay_curves import get_curve
 from engine.protection.relay_settings import suggest_relay_settings
 from engine.short_circuit.iec60909 import IEC60909Calculator
 from engine.sizing.breaker_sizing import size_breaker, size_disconnector
@@ -97,9 +98,12 @@ class CalculationService:
         sc_results_raw = calculator.run()
 
         sc_results: list[ElementResult] = []
+        elem_by_code = {e.code: e for e in active_elements}
         for raw in sc_results_raw:
+            src_elem = elem_by_code.get(raw.element_code)
             sc_results.append(ElementResult(
                 element_code=raw.element_code,
+                has_protection=getattr(src_elem, "has_protection", True),
                 bus_from=getattr(raw, "bus_from", ""),
                 bus_to=raw.bus_name,
                 z1_r_ohm=raw.z1_ohm.real,
@@ -123,6 +127,18 @@ class CalculationService:
                 icc_3ph_min_ka=getattr(raw, "icc_3ph_min_ka", 0.0),
                 icc_2ph_min_ka=getattr(raw, "icc_2ph_min_ka", 0.0),
                 icc_1ph_min_ka=getattr(raw, "icc_1ph_min_ka", None),
+                # Correção (divisor de corrente — retaguarda de ramos em
+                # paralelo): ver engine/short_circuit/iec60909.py::
+                # _apply_parallel_current_divider e schemas.py::ElementResult
+                # para a justificativa completa.
+                icc_3ph_shared_ka=getattr(raw, "icc_3ph_shared_ka", raw.icc_3ph_ka),
+                icc_2ph_shared_ka=getattr(raw, "icc_2ph_shared_ka", raw.icc_2ph_ka),
+                icc_1ph_shared_ka=getattr(raw, "icc_1ph_shared_ka", raw.icc_1ph_ka),
+                icc_3ph_shared_min_ka=getattr(raw, "icc_3ph_shared_min_ka", 0.0),
+                icc_2ph_shared_min_ka=getattr(raw, "icc_2ph_shared_min_ka", 0.0),
+                icc_1ph_shared_min_ka=getattr(raw, "icc_1ph_shared_min_ka", None),
+                is_parallel_group=getattr(raw, "is_parallel_group", False),
+                parallel_group_size=getattr(raw, "parallel_group_size", 1),
                 warnings=raw.warnings,
                 assumptions=raw.assumptions,
                 is_valid=raw.is_valid,
@@ -290,6 +306,7 @@ def _build_network_element(e, system: SystemBase) -> NetworkElement:
         code=e.code,
         element_type=etype,
         is_active=e.is_active,
+        has_protection=getattr(e, "has_protection", True),
         bus_from=e.bus_from,
         bus_to=e.bus_to,
         voltage_kv=e.voltage_kv if e.voltage_kv > 0 else system.v_base_kv,
@@ -357,12 +374,130 @@ def _ct_primary_for_load(i_load_a: float) -> float:
     return CT_PRIMARY_SERIES_A[-1]
 
 
+def _build_relay_topology(active_elements) -> tuple[dict, dict]:
+    """
+    Correção (coordenação real por graduação de TMS): constrói o grafo
+    bus_from → bus_to de todos os elementos ativos e a profundidade (nº de
+    saltos desde a fonte) de cada um. A coordenação clássica "de trás para
+    frente" (Kindermann Cap.4) exige processar primeiro o relé mais REMOTO
+    (maior profundidade / mais próximo da carga) — com TMS mínimo prático —
+    e depois subir em direção à fonte, cada relé de retaguarda recebendo
+    margem sobre o pior (mais lento) relé protegido imediatamente a jusante.
+
+    Usa o MESMO critério de detecção de barra-fonte já usado em
+    engine/short_circuit/iec60909.py::IEC60909Calculator.run — bus_from que
+    não corresponde ao bus_to de nenhum outro elemento cadastrado.
+
+    Retorna:
+        children_by_bus: bus -> lista de elementos com bus_from == bus
+        depth_by_code: element.code -> profundidade (0 = ligado direto à fonte)
+    """
+    children_by_bus: dict = {}
+    bus_to_set = set()
+    for e in active_elements:
+        bf = getattr(e, "bus_from", "") or ""
+        bt = getattr(e, "bus_to", "") or ""
+        if bf:
+            children_by_bus.setdefault(bf, []).append(e)
+        if bt:
+            bus_to_set.add(bt)
+
+    root_buses = sorted({
+        (getattr(e, "bus_from", "") or "") for e in active_elements
+        if (getattr(e, "bus_from", "") or "") and (getattr(e, "bus_from", "") or "") not in bus_to_set
+    })
+    if not root_buses and active_elements:
+        bf0 = getattr(active_elements[0], "bus_from", "") or ""
+        if bf0:
+            root_buses = [bf0]
+
+    depth_by_code: dict = {}
+    visited_buses: set = set()
+    queue: list = [(b, 0) for b in root_buses]
+    while queue:
+        bus, depth = queue.pop(0)
+        if bus in visited_buses:
+            continue
+        visited_buses.add(bus)
+        for child in children_by_bus.get(bus, []):
+            if child.code not in depth_by_code:
+                depth_by_code[child.code] = depth + 1
+                bt = getattr(child, "bus_to", "") or ""
+                if bt:
+                    queue.append((bt, depth + 1))
+
+    return children_by_bus, depth_by_code
+
+
+def _resolve_downstream_protected(bus: str, children_by_bus: dict, _visited: set | None = None) -> list:
+    """
+    A partir de uma barra, retorna os elementos protegidos IMEDIATAMENTE a
+    jusante — atravessando de forma TRANSPARENTE elementos SEM proteção
+    própria (checkbox "possui proteção" desmarcado, ver engine/domain/
+    network.py::NetworkElement.has_protection): eles continuam no cálculo
+    de curto-circuito, mas por não terem painel de proteção não entram na
+    cadeia de coordenação — a busca "pula" para os filhos deles. Isso
+    garante que a retaguarda seja graduada contra o relé real mais próximo,
+    mesmo que existam pontos de passagem sem proteção dedicada pelo meio.
+    """
+    if not bus:
+        return []
+    if _visited is None:
+        _visited = set()
+    if bus in _visited:
+        return []  # proteção contra ciclo em dados de topologia malformados
+    _visited.add(bus)
+
+    found: list = []
+    for child in children_by_bus.get(bus, []):
+        if getattr(child, "has_protection", True):
+            found.append(child)
+        else:
+            bt = getattr(child, "bus_to", "") or ""
+            found.extend(_resolve_downstream_protected(bt, children_by_bus, _visited))
+    return found
+
+
+def _worst_downstream_time(children: list, committed_map: dict, ref_current_ka: float) -> Optional[float]:
+    """
+    Dado o conjunto de relés protegidos imediatamente a jusante (já
+    coordenados, portanto já com TMS/Ip/curva definitivos em
+    `committed_map`), calcula o tempo de atuação de CADA UM deles na
+    corrente de referência DESTE ponto (montante) — não na corrente local
+    deles — e retorna o PIOR (mais lento). Ver nota em
+    engine/protection/relay_settings.py::suggest_relay_settings
+    (parâmetro t_downstream_worst_s) para a justificativa de usar a
+    corrente do ponto montante (fronteira das duas zonas de proteção).
+    """
+    if ref_current_ka <= 0:
+        return None
+    worst: Optional[float] = None
+    for child in children:
+        rs = committed_map.get(child.code)
+        if rs is None or rs.tms_suggested <= 0 or rs.pickup_primary_ka <= 0:
+            continue
+        curve = get_curve(rs.curve_type)
+        if curve is None:
+            continue
+        t = curve.operating_time(ref_current_ka, rs.pickup_primary_ka, rs.tms_suggested)
+        if t is not None and (worst is None or t > worst):
+            worst = t
+    return worst
+
+
 def _suggest_all_relay_settings(
     active_elements, sc_results_raw, relay_curve_type: str = "EI"
 ) -> tuple[list[RelaySettingOutput], list[str]]:
     """
     Gera sugestões de relés para elementos com corrente de curto calculada.
     Retorna (relay_results, errors) onde errors é lista de strings diagnósticas.
+
+    Correção (coordenação real por graduação de TMS): os elementos são
+    processados em ordem DECRESCENTE de profundidade (jusante → montante,
+    "de trás para frente" — Kindermann Cap.4), de modo que, ao calcular o
+    ajuste de um relé, os ajustes de TODOS os relés protegidos imediatamente
+    a jusante dele já estejam definitivos e disponíveis para a graduação de
+    TMS (parâmetro t_downstream_worst_s de suggest_relay_settings).
     """
     relay_results: list[RelaySettingOutput] = []
     errors: list[str] = []
@@ -371,8 +506,26 @@ def _suggest_all_relay_settings(
     # Diagnóstico: mostrar quais códigos estão disponíveis
     available_codes = list(results_map.keys())
 
-    for elem in active_elements:
+    children_by_bus, depth_by_code = _build_relay_topology(active_elements)
+    # TMS já definitivos das funções 51 e 51N por elemento, preenchidos à
+    # medida que o loop bottom-up avança — usados para graduar a retaguarda.
+    committed_51: dict = {}
+    committed_51n: dict = {}
+    original_order = {e.code: i for i, e in enumerate(active_elements)}
+    processing_order = sorted(
+        active_elements, key=lambda e: -depth_by_code.get(e.code, 0)
+    )
+
+    for elem in processing_order:
         try:
+            # Correção (checkbox "possui proteção" por ponto): sem TC/TP/
+            # disjuntor/relé próprios, não faz sentido parametrizar relé
+            # aqui — ver engine/domain/network.py::NetworkElement.
+            # has_protection. O elemento continua no cálculo de Icc (já
+            # feito antes desta função), só não aparece na tabela de relés.
+            if not getattr(elem, "has_protection", True):
+                continue
+
             raw = results_map.get(elem.code)
             if raw is None:
                 errors.append(
@@ -395,10 +548,36 @@ def _suggest_all_relay_settings(
             # detecção). Antes desta correção, o parâmetro icc_2ph_ka/icc_1ph_ka
             # de suggest_relay_settings — cujo próprio campo de saída se chama
             # 'icc_2ph_min_ka'/idem — recebia o valor MÁXIMO por engano.
-            icc2_min = getattr(raw, "icc_2ph_min_ka", 0.0) or icc2
-            icc1_min = getattr(raw, "icc_1ph_min_ka", None)
+            # ── Correção (divisor de corrente — retaguarda de ramos em
+            # paralelo, ex.: trafos ou linhas duplicados entre as mesmas 2
+            # barras): usar a corrente MÍNIMA DIVIDIDA (icc_*_shared_min_ka
+            # — todos os irmãos em serviço), não a "sozinha/N-1", para a
+            # verificação de sensibilidade. A "sozinha" superestimaria a
+            # sensibilidade real do ajuste (corrente real por ramo é MENOR
+            # quando ambos estão em paralelo). Para elementos sem irmãos
+            # paralelos, icc_*_shared_min_ka == icc_*_min_ka (sem diferença).
+            # Ver engine/short_circuit/iec60909.py::_apply_parallel_current_divider.
+            icc2_min = getattr(raw, "icc_2ph_shared_min_ka", None)
+            if not icc2_min:
+                icc2_min = getattr(raw, "icc_2ph_min_ka", 0.0) or icc2
+            icc1_min = getattr(raw, "icc_1ph_shared_min_ka", None)
+            if icc1_min is None:
+                icc1_min = getattr(raw, "icc_1ph_min_ka", None)
             if icc1_min is None:
                 icc1_min = icc1
+
+            # ── Correção (coordenação real por graduação de TMS): localiza
+            # os relés protegidos IMEDIATAMENTE a jusante deste elemento
+            # (atravessando transparentemente pontos sem proteção própria —
+            # ver _resolve_downstream_protected) e calcula, para cada um, o
+            # tempo de atuação NA CORRENTE DESTE PONTO (fronteira das duas
+            # zonas de proteção) usando o ajuste JÁ DEFINITIVO desses relés
+            # (processados antes, por estarem mais a jusante — ver ordem
+            # `processing_order`). O pior (mais lento) desses tempos é o
+            # "t_downstream_worst_s" repassado a suggest_relay_settings.
+            protected_children = _resolve_downstream_protected(elem.bus_to, children_by_bus)
+            t_downstream_phase = _worst_downstream_time(protected_children, committed_51, icc3)
+            t_downstream_ground = _worst_downstream_time(protected_children, committed_51n, icc1_min)
 
             # Corrente nominal estimada a partir dos dados do elemento
             i_load_ka = 0.0
@@ -441,8 +620,13 @@ def _suggest_all_relay_settings(
                     element_code=elem.code, ansi_function="51",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                     i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type=relay_curve_type,
+                    t_downstream_worst_s=t_downstream_phase,
                 )
                 relay_results.append(_make_relay_output(rs51, icc3))
+                # Disponibiliza o ajuste definitivo da 51 para que o relé de
+                # retaguarda (mais a montante, processado depois neste loop
+                # bottom-up) possa se graduar contra ele.
+                committed_51[elem.code] = rs51
 
                 # 50 — instantânea de fase
                 rs50 = suggest_relay_settings(
@@ -466,6 +650,10 @@ def _suggest_all_relay_settings(
                         element_code=elem.code, ansi_function="67",
                         icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                         i_load_ka=i_load_ka, ct_ratio=ct_ratio, curve_type="NI",
+                        # Mesmo ponto/mesma fronteira de coordenação da 51
+                        # acima (67 é função ADICIONAL no mesmo local, não
+                        # um novo ponto a jusante) — usa o mesmo alvo.
+                        t_downstream_worst_s=t_downstream_phase,
                     )
                     relay_results.append(_make_relay_output(rs67, icc3))
 
@@ -547,6 +735,7 @@ def _suggest_all_relay_settings(
                     element_code=elem.code, ansi_function="51N",
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                     i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
+                    t_downstream_worst_s=t_downstream_ground,
                 )
                 relay_results.append(RelaySettingOutput(
                     element_code=rs51n.element_code, ansi_function="51N",
@@ -559,6 +748,9 @@ def _suggest_all_relay_settings(
                     warnings=rs51n.warnings, assumptions=rs51n.assumptions,
                     notes=rs51n.notes,
                 ))
+                # Disponibiliza o ajuste definitivo da 51N para a retaguarda
+                # de terra (montante, processada depois neste loop bottom-up).
+                committed_51n[elem.code] = rs51n
 
                 # 67N — terra direcional
                 if elem.element_type in (ElementType.linha, ElementType.cabo, ElementType.alimentador):
@@ -567,6 +759,9 @@ def _suggest_all_relay_settings(
                         element_code=elem.code, ansi_function="67N",
                         icc_3ph_ka=icc3, icc_2ph_ka=icc2_min, icc_1ph_ka=icc1_min,
                         i_load_ka=0.0, ct_ratio=ct_ratio, curve_type="EI",
+                        # Mesmo ponto/mesma fronteira de coordenação da 51N
+                        # acima (67N é função ADICIONAL no mesmo local).
+                        t_downstream_worst_s=t_downstream_ground,
                     )
                     relay_results.append(_make_relay_output(rs67n, icc1, curve="EI"))
 
@@ -578,6 +773,10 @@ def _suggest_all_relay_settings(
                 f"{exc} | Traceback: {tb}"
             )
 
+    # Reordena para a ordem original de cadastro (o loop acima processa em
+    # ordem bottom-up de coordenação, que não é a ordem de exibição desejada
+    # na UI/relatório).
+    relay_results.sort(key=lambda r: original_order.get(r.element_code, 10**9))
     return relay_results, errors
 
 
@@ -608,6 +807,11 @@ def _size_all_equipment(
         try:
             # Apenas tipos relevantes para proteção
             if elem.element_type not in _SIZING_ELEMENT_TYPES:
+                continue
+            # Correção (checkbox "possui proteção" por ponto): sem painel de
+            # proteção dedicado, não dimensionar TC/TP/disjuntor aqui — ver
+            # engine/domain/network.py::NetworkElement.has_protection.
+            if not getattr(elem, "has_protection", True):
                 continue
 
             raw = results_map.get(elem.code)

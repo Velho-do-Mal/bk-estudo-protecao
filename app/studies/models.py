@@ -138,6 +138,11 @@ class NetworkElement(Base):
     row_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Correção: gate de proteção por ponto — ver engine/domain/network.py
+    # (NetworkElement.has_protection). Default True preserva estudos salvos
+    # antes desta correção (requer migração de banco — ver migrations/).
+    has_protection: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     # Identificação
     code: Mapped[str] = mapped_column(String(100), nullable=False)
     element_type: Mapped[ElementType] = mapped_column(
