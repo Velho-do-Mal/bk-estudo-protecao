@@ -55,6 +55,7 @@ class AuthService:
         )
         self.db.add(user)
         await self.db.flush()
+        await self.db.refresh(user)
         return user
 
     async def authenticate(self, username: str, password: str) -> Optional[User]:
