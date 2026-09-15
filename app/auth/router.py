@@ -25,6 +25,7 @@ async def login_page(
     templates: Jinja2Templates = Depends(get_templates),
 ):
     return templates.TemplateResponse(
+        request,
         "auth/login.html", {"request": request, "title": "Login"}
     )
 

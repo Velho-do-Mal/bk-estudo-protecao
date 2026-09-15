@@ -4,74 +4,55 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — BK_Estudo_Proteção v2</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config = { theme: { extend: { colors: { 'bk-navy': '#1a3a5c', 'bk-orange': '#e07b39' } } } }</script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body { font-family: 'Inter', sans-serif; }</style>
+  <link rel="icon" type="image/png" href="/static/img/favicon-64.png">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/design-system.css">
 </head>
-<body class="min-h-screen bg-gradient-to-br from-bk-navy to-blue-900 flex items-center justify-center p-4">
+<body>
 
-  <div class="w-full max-w-md">
-    <!-- Card de login -->
-    <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
-
-      <!-- Header -->
-      <div class="bg-bk-navy px-8 py-8 text-center">
-        <div class="inline-flex items-center justify-center w-16 h-16 bg-bk-orange rounded-xl mb-4">
-          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-          </svg>
+  <div class="login-wrap">
+    <div style="width:100%; max-width:400px;">
+      <div class="login-card">
+        <div class="login-head">
+          <img src="/static/img/bk-logo-128.png" alt="BK Engenharia e Tecnologia">
+          <h1>BK_Estudo_Proteção</h1>
+          <p>Sistema Profissional de Proteção v2.0</p>
         </div>
-        <h1 class="text-2xl font-bold text-white">BK_Estudo_Proteção</h1>
-        <p class="text-blue-300 text-sm mt-1">Sistema Profissional de Proteção v2.0</p>
+
+        <div class="login-body">
+          {% if error %}
+          <div class="alert alert-danger mb-4">{{ error }}</div>
+          {% endif %}
+
+          <form id="loginForm">
+            <div class="field">
+              <label>Usuário</label>
+              <input type="text" id="username" name="username" required class="input" placeholder="seu.usuario">
+            </div>
+            <div class="field">
+              <label>Senha</label>
+              <input type="password" id="password" name="password" required class="input" placeholder="••••••••">
+            </div>
+
+            <button type="submit" id="loginBtn" class="btn btn-primary w-full" style="justify-content:center; padding:11px;">
+              Entrar no Sistema
+            </button>
+          </form>
+
+          <div id="loginError" hidden class="alert alert-danger mt-3"></div>
+
+          <div class="mt-6" style="padding-top:18px; border-top:1px solid var(--line); text-align:center;">
+            <p class="text-xs text-soft" style="line-height:1.6;">
+              Sistema de uso exclusivo para engenheiros habilitados.<br>
+              Os resultados gerados requerem validação técnica profissional.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <!-- Form -->
-      <div class="px-8 py-8">
-        {% if error %}
-        <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          {{ error }}
-        </div>
-        {% endif %}
-
-        <form id="loginForm" class="space-y-5">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1.5">Usuário</label>
-            <input type="text" id="username" name="username" required
-                   class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-bk-navy focus:border-transparent outline-none transition"
-                   placeholder="seu.usuario">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1.5">Senha</label>
-            <input type="password" id="password" name="password" required
-                   class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-bk-navy focus:border-transparent outline-none transition"
-                   placeholder="••••••••">
-          </div>
-
-          <button type="submit" id="loginBtn"
-                  class="w-full bg-bk-navy text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-900 transition shadow-sm">
-            Entrar no Sistema
-          </button>
-        </form>
-
-        <div id="loginError" class="hidden mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
-
-        <!-- Aviso técnico -->
-        <div class="mt-6 pt-5 border-t border-gray-100">
-          <p class="text-xs text-gray-400 text-center leading-relaxed">
-            Sistema de uso exclusivo para engenheiros habilitados.<br>
-            Os resultados gerados requerem validação técnica profissional.
-          </p>
-        </div>
-      </div>
+      <p class="login-foot">BK Engenharia e Tecnologia — BK_Estudo_Proteção v2.0</p>
     </div>
-
-    <p class="text-center text-blue-300 text-xs mt-6">
-      BK Engenharia e Tecnologia — BK_Estudo_Proteção v2.0
-    </p>
   </div>
 
   <script>
@@ -79,9 +60,10 @@
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
       const errDiv = document.getElementById('loginError');
+      const originalText = btn.textContent;
       btn.textContent = 'Autenticando...';
       btn.disabled = true;
-      errDiv.classList.add('hidden');
+      errDiv.hidden = true;
 
       try {
         const resp = await fetch('/auth/login', {
@@ -95,15 +77,15 @@
         if (resp.ok) {
           window.location.href = '/dashboard';
         } else {
-          const data = await resp.json();
+          const data = await resp.json().catch(() => ({}));
           errDiv.textContent = data.detail || 'Usuário ou senha incorretos.';
-          errDiv.classList.remove('hidden');
+          errDiv.hidden = false;
         }
       } catch(e) {
         errDiv.textContent = 'Erro de conexão com o servidor.';
-        errDiv.classList.remove('hidden');
+        errDiv.hidden = false;
       } finally {
-        btn.textContent = 'Entrar no Sistema';
+        btn.textContent = originalText;
         btn.disabled = false;
       }
     });

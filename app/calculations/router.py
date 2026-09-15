@@ -67,6 +67,7 @@ async def view_results(
 ):
     """Renderiza a aba de resultados com os dados do estudo."""
     return templates.TemplateResponse(
+        request,
         "studies/results.html",
         {
             "request": request,

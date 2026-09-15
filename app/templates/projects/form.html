@@ -1,64 +1,53 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Editar' if project else 'Novo' }} Projeto{% endblock %}
+{% block breadcrumb %}<a href="/projects/">Projetos</a> / <b>{{ 'Editar' if project else 'Novo' }}</b>{% endblock %}
 {% block page_title %}{{ 'Editar Projeto' if project else 'Novo Projeto' }}{% endblock %}
 {% block page_subtitle %}Cadastro e gestão do projeto de estudo elétrico{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl">
-  <form id="projectForm" class="space-y-6">
-
-    <div class="bg-white border border-bk-border rounded-lg shadow-sm p-6">
-      <h3 class="font-semibold text-bk-navy text-sm mb-5 pb-3 border-b border-gray-100">Identificação do Projeto</h3>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Número do Projeto *</label>
-          <input type="text" name="project_number" required
-                 value="{{ project.project_number if project else '' }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none font-mono"
-                 placeholder="BK-2026-001">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Nome do Projeto *</label>
-          <input type="text" name="name" required
-                 value="{{ project.name if project else '' }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none"
-                 placeholder="Estudo de Proteção — SE Industrial 13,8 kV">
-        </div>
-        <div class="col-span-2">
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Descrição</label>
-          <textarea name="description" rows="2"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none resize-none"
-                    placeholder="Descrição resumida do escopo do estudo...">{{ project.description if project else '' }}</textarea>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Responsável Técnico</label>
-          <input type="text" name="responsible_engineer"
-                 value="{{ project.responsible_engineer if project else '' }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none"
-                 placeholder="Eng. João Silva — CREA 12345/D-SP">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Empresa Responsável</label>
-          <input type="text" name="company_name"
-                 value="{{ project.company_name if project else '' }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none"
-                 placeholder="BK Engenharia e Tecnologia">
-        </div>
-        <div class="col-span-2">
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Observações Técnicas</label>
-          <textarea name="technical_notes" rows="3"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-bk-navy outline-none resize-none"
-                    placeholder="Premissas especiais, limitações, referências normativas específicas...">{{ project.technical_notes if project else '' }}</textarea>
+<div style="max-width:760px;">
+  <form id="projectForm">
+    <div class="card mb-5">
+      <div class="card-head"><h3>Identificação do Projeto</h3></div>
+      <div class="card-body">
+        <div class="field-grid cols-2">
+          <div class="field">
+            <label>Número do Projeto *</label>
+            <input type="text" name="project_number" required value="{{ project.project_number if project else '' }}"
+                   class="input mono" placeholder="BK-2026-001">
+          </div>
+          <div class="field">
+            <label>Nome do Projeto *</label>
+            <input type="text" name="name" required value="{{ project.name if project else '' }}"
+                   class="input" placeholder="Estudo de Proteção — SE Industrial 13,8 kV">
+          </div>
+          <div class="field" style="grid-column:span 2;">
+            <label>Descrição</label>
+            <textarea name="description" rows="2" class="textarea"
+                      placeholder="Descrição resumida do escopo do estudo...">{{ project.description if project else '' }}</textarea>
+          </div>
+          <div class="field">
+            <label>Responsável Técnico</label>
+            <input type="text" name="responsible_engineer" value="{{ project.responsible_engineer if project else '' }}"
+                   class="input" placeholder="Eng. João Silva — CREA 12345/D-SP">
+          </div>
+          <div class="field">
+            <label>Empresa Responsável</label>
+            <input type="text" name="company_name" value="{{ project.company_name if project else '' }}"
+                   class="input" placeholder="BK Engenharia e Tecnologia">
+          </div>
+          <div class="field" style="grid-column:span 2;">
+            <label>Observações Técnicas</label>
+            <textarea name="technical_notes" rows="3" class="textarea"
+                      placeholder="Premissas especiais, limitações, referências normativas específicas...">{{ project.technical_notes if project else '' }}</textarea>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="flex items-center gap-3">
-      <button type="submit"
-              class="bg-bk-navy text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-900 transition shadow-sm">
-        {{ 'Salvar Alterações' if project else 'Criar Projeto' }}
-      </button>
-      <a href="/projects/" class="text-gray-500 text-sm hover:text-gray-700">Cancelar</a>
+    <div class="flex gap-3" style="align-items:center;">
+      <button type="submit" class="btn btn-primary">{{ 'Salvar Alterações' if project else 'Criar Projeto' }}</button>
+      <a href="/projects/" class="btn btn-ghost">Cancelar</a>
     </div>
   </form>
 </div>

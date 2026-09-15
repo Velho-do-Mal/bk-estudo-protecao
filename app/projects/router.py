@@ -43,6 +43,7 @@ async def list_projects_page(
     result = await db.execute(q)
     projects = result.scalars().all()
     return templates.TemplateResponse(
+        request,
         "projects/list.html",
         {
             "request": request,
@@ -61,6 +62,7 @@ async def new_project_page(
     current_user=Depends(get_current_user),
 ):
     return templates.TemplateResponse(
+        request,
         "projects/form.html",
         {"request": request, "project": None, "user": current_user, "title": "Novo Projeto"},
     )
@@ -105,6 +107,7 @@ async def project_detail(
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
     return templates.TemplateResponse(
+        request,
         "projects/detail.html",
         {"request": request, "project": project, "user": current_user, "title": project.name},
     )
@@ -123,6 +126,7 @@ async def update_project(
     for field, val in data.model_dump(exclude_none=True).items():
         setattr(project, field, val)
     await db.flush()
+    await db.refresh(project)
     return ProjectRead.model_validate(project)
 
 

@@ -104,12 +104,14 @@ def create_app() -> FastAPI:
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard(request: Request):
         return templates.TemplateResponse(
+            request,
             "dashboard/index.html",
             {
                 "request": request,
                 "title": "Dashboard",
                 "app_name": settings.APP_NAME,
                 "app_version": settings.APP_VERSION,
+                "active_nav": "dashboard",
             },
         )
 
@@ -119,6 +121,7 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api"):
             return JSONResponse({"detail": "Recurso não encontrado."}, status_code=404)
         return templates.TemplateResponse(
+            request,
             "partials/_error.html",
             {"request": request, "error": "Página não encontrada.", "code": 404},
             status_code=404,
@@ -130,6 +133,7 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api"):
             return JSONResponse({"detail": "Erro interno do servidor."}, status_code=500)
         return templates.TemplateResponse(
+            request,
             "partials/_error.html",
             {"request": request, "error": "Erro interno do servidor.", "code": 500},
             status_code=500,

@@ -19,7 +19,10 @@ aiosqlite>=0.20.0         # SQLite async (dev local)
 # ─── Autenticação ─────────────────────────────────────────────────────────────
 pyjwt>=2.9.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.2.0
+# Fixado <4.1: passlib 1.7.4 (última versão, projeto sem atividade) não
+# reconhece o novo backend do bcrypt>=4.1, quebrando hash/verificação de
+# senha ("password cannot be longer than 72 bytes..." em qualquer senha).
+bcrypt==4.0.1
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
 pydantic>=2.10

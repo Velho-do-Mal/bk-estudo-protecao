@@ -22,12 +22,8 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copia código da aplicação
 COPY . .
 
-# Expõe porta padrão do Streamlit (Render injeta $PORT em runtime)
-EXPOSE 8501
+# Expõe porta padrão da aplicação (Railway injeta $PORT em runtime)
+EXPOSE 8000
 
-# Comando de inicialização — Streamlit (interface principal do usuário)
-CMD streamlit run streamlit_app.py \
-    --server.port ${PORT:-8501} \
-    --server.address 0.0.0.0 \
-    --server.headless true \
-    --browser.gatherUsageStats false
+# Comando de inicialização — FastAPI/Jinja2 (interface principal do usuário)
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

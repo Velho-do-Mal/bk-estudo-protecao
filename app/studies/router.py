@@ -70,6 +70,7 @@ def _element_to_dict(e: NetworkElement) -> dict:
         "notes": e.notes,
         "data_origin": e.data_origin.value if e.data_origin else "informado",
         "assumptions": e.assumptions,
+        "has_protection": e.has_protection if e.has_protection is not None else True,
     }
 
 
@@ -86,6 +87,7 @@ def _study_to_dict(s: Study) -> dict:
         "fault_time_s": s.fault_time_s,
         "voltage_factor_c": s.voltage_factor_c,
         "conductor_temp_c": s.conductor_temp_c,
+        "neutral_grounding": s.neutral_grounding or "isolado",
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -131,6 +133,7 @@ async def api_create_study(
     )
     db.add(study)
     await db.flush()
+    await db.refresh(study)
     return _study_to_dict(study)
 
 
@@ -152,6 +155,7 @@ async def api_update_study(
         "voltage_factor_c": "voltage_factor_c",
         "conductor_temp_c": "conductor_temp_c",
         "fault_time_s": "fault_time_s",
+        "neutral_grounding": "neutral_grounding",
         # aliases usados pelos templates
         "system_voltage_kv": "v_base_kv",
         "system_power_mva": "s_base_mva",
@@ -161,6 +165,7 @@ async def api_update_study(
         if key in data:
             setattr(study, model_field, data[key])
     await db.flush()
+    await db.refresh(study)
     return _study_to_dict(study)
 
 
@@ -239,6 +244,7 @@ async def api_save_elements(
             motor_s_mva=_f(ed.get("motor_s_mva")),
             motor_xpp_percent=_f(ed.get("motor_xpp_percent")),
             is_active=bool(ed.get("is_active", True)),
+            has_protection=bool(ed.get("has_protection", True)),
         )
         db.add(elem)
         saved += 1
@@ -283,6 +289,7 @@ async def network_page(
 
     try:
         return templates.TemplateResponse(
+            request,
             "studies/network.html",
             {
                 "request": request,
@@ -342,6 +349,7 @@ async def system_data_page(
     if not study:
         raise HTTPException(status_code=404, detail="Estudo não encontrado.")
     return templates.TemplateResponse(
+        request,
         "studies/system_data.html",
         {
             "request": request,
@@ -379,6 +387,7 @@ async def equipment_page(
     relays = relay_result.scalars().all()
 
     return templates.TemplateResponse(
+        request,
         "studies/equipment.html",
         {
             "request": request,
@@ -412,6 +421,7 @@ async def diagram_page(
     elements = [_element_to_dict(e) for e in elem_result.scalars().all()]
 
     return templates.TemplateResponse(
+        request,
         "studies/diagram.html",
         {
             "request": request,

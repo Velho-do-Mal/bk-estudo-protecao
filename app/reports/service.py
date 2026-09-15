@@ -1,185 +1,202 @@
 """
 app/reports/service.py
 
-ReportService: geração do relatório técnico profissional.
+ReportService: geração do Relatório Técnico Word (.docx) real do estudo,
+recalculando o estudo a partir dos dados atuais (NetworkElement/Study) e
+delegando a montagem do documento para
+engine/reports/relatorio_protecao.py::gerar_relatorio_protecao — o mesmo
+gerador usado pela versão Streamlit (pages/3_Rede_e_Calculo.py).
+
+Nenhuma lógica de cálculo é reimplementada aqui: apenas lê o estudo salvo,
+monta o CalculationRequest (mesmos schemas usados por /api/calculations/run)
+e repassa o resultado ao gerador de Word.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from io import BytesIO
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
-from app.studies.models import CalculationResult, NetworkElement, Study, StudyRelay
-
-settings = get_settings()
-
-# Referências normativas completas para o relatório
-METHODOLOGY_REFERENCES = [
-    {
-        "code": "IEC 60909-0:2016",
-        "title": "Short-circuit currents in three-phase a.c. systems — Part 0: Calculation of currents",
-        "application": "Método principal de cálculo de correntes de curto-circuito (fonte de tensão equivalente)"
-    },
-    {
-        "code": "ABNT NBR IEC 61869-2:2014",
-        "title": "Transformadores de instrumentos — Requisitos adicionais para transformadores de corrente",
-        "application": "Dimensionamento e especificação de TC (relação, classe 5P, ALF, Vk, Rct)"
-    },
-    {
-        "code": "ABNT NBR IEC 61869-3:2016",
-        "title": "Transformadores de instrumentos — Requisitos adicionais para transformadores de tensão indutivos",
-        "application": "Dimensionamento e especificação de TP (relação, classe 3P/6P, Ktf, NBI)"
-    },
-    {
-        "code": "ABNT NBR IEC 62271-100:2014",
-        "title": "Equipamentos para alta tensão — Disjuntores de corrente alternada",
-        "application": "Dimensionamento de disjuntores (Icc ruptura, fechamento, curta duração)"
-    },
-    {
-        "code": "ABNT NBR IEC 62271-102:2001",
-        "title": "Equipamentos para alta tensão — Seccionadoras e chaves de aterramento de c.a.",
-        "application": "Dimensionamento de seccionadoras (Ik, Ip, tensão nominal)"
-    },
-    {
-        "code": "IEC 62271-111:2012",
-        "title": "High-voltage switchgear and controlgear — Automatic circuit-reclosers",
-        "application": "Especificação de religadores automáticos de distribuição MT"
-    },
-    {
-        "code": "ABNT NBR IEC 62271-1:2013",
-        "title": "Equipamentos para alta tensão — Requisitos comuns (NBI por tensão nominal)",
-        "application": "Nível básico de isolamento por classe de tensão (Tabela 2)"
-    },
-    {
-        "code": "IEC 60255-151:2009",
-        "title": "Measuring relays and protection equipment — Functional requirements for over/under-current protection",
-        "application": "Curvas de proteção de sobrecorrente: NI, VI, EI, LI — ajuste de TMS e pickup"
-    },
-    {
-        "code": "IEEE C37.112-1996",
-        "title": "Standard Inverse-Time Characteristic Equations for Overcurrent Relays",
-        "application": "Equações das curvas inversas de proteção de sobrecorrente (alternativa ANSI)"
-    },
-    {
-        "code": "IEC 60076-1:2011",
-        "title": "Power transformers — Part 1: General",
-        "application": "Corrente de inrush de transformadores (componente harmônica de 2ª)"
-    },
-    {
-        "code": "IEC 60228:2004",
-        "title": "Conductors of insulated cables",
-        "application": "Classes e seções normalizadas de condutores"
-    },
-    {
-        "code": "ABNT NBR 5444:1989",
-        "title": "Símbolos gráficos para instalações elétricas prediais",
-        "application": "Simbologia no diagrama unifilar (complementar à IEC 60617)"
-    },
-    {
-        "code": "IEC 60617",
-        "title": "Graphical symbols for diagrams",
-        "application": "Símbolos normativos para diagrama unifilar"
-    },
-]
+from app.calculations.schemas import CalculationRequest, ElementInput, SystemInput
+from app.calculations.service import CalculationService
+from app.studies.models import NetworkElement, Study
 
 
 class ReportService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def build_report_context(self, study_id: uuid.UUID) -> dict:
-        """Monta contexto completo para o template do relatório."""
+    async def _load_study_and_elements(self, study_id: uuid.UUID):
         study = await self.db.get(Study, study_id)
         if not study:
-            return {}
+            return None, None, []
 
-        # Projeto associado
         from app.projects.models import Project
         project = await self.db.get(Project, study.project_id)
 
-        # Elementos da rede
         elem_result = await self.db.execute(
             select(NetworkElement)
             .where(NetworkElement.study_id == study_id)
             .order_by(NetworkElement.row_order)
         )
         elements = elem_result.scalars().all()
+        return study, project, elements
 
-        # Resultados de cálculo (últimos por elemento)
-        calc_result = await self.db.execute(
-            select(CalculationResult)
-            .where(CalculationResult.study_id == study_id)
-            .order_by(CalculationResult.calculated_at.desc())
+    def _build_system_input(self, study: Study) -> SystemInput:
+        return SystemInput(
+            s_base_mva=study.s_base_mva or 100.0,
+            v_base_kv=study.v_base_kv or 13.8,
+            frequency_hz=study.frequency_hz or 60.0,
+            fault_time_s=study.fault_time_s or 0.5,
+            z_source_r_ohm=study.z_source_r_ohm or 0.0,
+            z_source_x_ohm=study.z_source_x_ohm or 0.0,
+            z_source_r2_ohm=study.z_source_r2_ohm or 0.0,
+            z_source_x2_ohm=study.z_source_x2_ohm or 0.0,
+            z_source_r0_ohm=study.z_source_r0_ohm or 0.0,
+            z_source_x0_ohm=study.z_source_x0_ohm or 0.0,
+            relay_curve_type=study.relay_curve_type or "EI",
+            primary_connection=study.primary_connection or "Yg",
+            k_generator=study.k_generator or 1.0,
+            k_motor=study.k_motor or 1.0,
+            voltage_factor_c=study.voltage_factor_c or 1.10,
+            conductor_temp_c=study.conductor_temp_c or 20.0,
+            underground_group_factor=study.underground_group_factor or 1.0,
+            neutral_grounding=study.neutral_grounding or "isolado",
         )
-        calc_results = calc_result.scalars().all()
 
-        # Relés parametrizados
-        relay_result = await self.db.execute(
-            select(StudyRelay).where(StudyRelay.study_id == study_id)
+    def _build_element_inputs(self, elements: list[NetworkElement], v_base_kv: float) -> list[ElementInput]:
+        elem_inputs: list[ElementInput] = []
+        for e in elements:
+            if not e.is_active:
+                continue
+            try:
+                z_pct = min(float(e.trafo_z_percent or 0.0), 30.0)
+                elem_inputs.append(ElementInput(
+                    code=e.code,
+                    element_type=e.element_type.value if e.element_type else "linha",
+                    bus_from=e.bus_from or "",
+                    bus_to=e.bus_to or "",
+                    voltage_kv=e.voltage_kv or v_base_kv,
+                    length_km=e.length_km or 0.0,
+                    r1_ohm_km=e.r1_ohm_km or 0.0,
+                    x1_ohm_km=e.x1_ohm_km or 0.0,
+                    r0_ohm_km=e.r0_ohm_km,
+                    x0_ohm_km=e.x0_ohm_km,
+                    cable_name=e.cable_name,
+                    trafo_kva=e.trafo_kva or 0.0,
+                    trafo_z_percent=z_pct,
+                    trafo_z0_percent=e.trafo_z0_percent,
+                    trafo_connection=e.trafo_connection or "Yg-Yg",
+                    trafo_neutral_z_ohm=e.trafo_neutral_z_ohm or 0.0,
+                    trafo_voltage_sec_kv=e.trafo_voltage_sec_kv or 0.0,
+                    gen_s_sub_mva=e.gen_s_sub_mva or 0.0,
+                    gen_xpp_percent=e.gen_xpp_percent or 0.0,
+                    gen_connection=e.gen_connection or "Y",
+                    gen_neutral_z_ohm=e.gen_neutral_z_ohm or 0.0,
+                    motor_s_mva=e.motor_s_mva or 0.0,
+                    motor_xpp_percent=e.motor_xpp_percent or 0.0,
+                    motor_connection=e.motor_connection or "Y",
+                    motor_decay_s=e.motor_decay_s or 0.0,
+                    load_mva=e.load_mva or 0.0,
+                    nominal_current_a=e.nominal_current_a or 0.0,
+                    is_active=True,
+                    has_protection=e.has_protection if e.has_protection is not None else True,
+                ))
+            except Exception:
+                continue
+        return elem_inputs
+
+    async def generate_docx(
+        self,
+        study_id: uuid.UUID,
+        current_user=None,
+        doc_overrides: Optional[dict] = None,
+    ) -> Optional[BytesIO]:
+        """
+        Recalcula o estudo a partir dos dados atuais e gera o Relatório
+        Técnico Word (.docx) via engine/reports/relatorio_protecao.py.
+        Retorna None se o estudo não existir.
+        """
+        study, project, elements = await self._load_study_and_elements(study_id)
+        if not study:
+            return None
+
+        system_input = self._build_system_input(study)
+        elem_inputs = self._build_element_inputs(elements, study.v_base_kv or 13.8)
+
+        calc_request = CalculationRequest(
+            study_id=study_id,
+            system=system_input,
+            elements=elem_inputs,
         )
-        relays = relay_result.scalars().all()
 
-        # Revisões do projeto
-        revisions = []
-        if project:
-            from app.projects.models import ProjectRevision
-            rev_result = await self.db.execute(
-                select(ProjectRevision)
-                .where(ProjectRevision.project_id == project.id)
-                .order_by(ProjectRevision.created_at.desc())
-            )
-            revisions = rev_result.scalars().all()
+        svc = CalculationService(self.db)
+        user_id = getattr(current_user, "id", None)
+        result = await svc.run_calculation(calc_request, user_id=user_id)
 
-        # Impedância de fonte → |Z|
-        import math
-        zr = study.z_source_r_ohm or 0.0
-        zx = study.z_source_x_ohm or 0.0
-        zfonte_mag = math.sqrt(zr**2 + zx**2)
+        overrides = doc_overrides or {}
+        client_name = None
+        company_name = None
+        contact_phone = None
+        if project is not None:
+            company_name = project.company_name
+            if project.client_id:
+                from app.projects.models import Client
+                client = await self.db.get(Client, project.client_id)
+                if client:
+                    client_name = client.name
+                    contact_phone = client.contact_phone
 
-        return {
-            "study": study,
-            "project": project,
-            "elements": elements,
-            "calc_results": calc_results,
-            "relays": relays,
-            "revisions": revisions,
-            "generated_at": datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC"),
-            "algorithm_version": settings.ALGORITHM_VERSION,
-            "title": f"Relatório Técnico — {study.study_type}",
-            "zfonte_mag": zfonte_mag,
-            "methodology_references": METHODOLOGY_REFERENCES,
-            "disclaimer": (
-                "AVISO DE RESPONSABILIDADE TÉCNICA: Este relatório é um documento "
-                "técnico auxiliar. A validação, responsabilidade técnica e aprovação "
-                "final são de exclusiva responsabilidade do engenheiro eletricista "
-                "habilitado (CREA). Os resultados devem ser verificados antes de "
-                "qualquer aplicação prática em sistemas elétricos reais."
-            ),
+        engenheiro = (
+            overrides.get("engenheiro")
+            or (project.responsible_engineer if project else None)
+            or (getattr(current_user, "full_name", None))
+            or "Engenheiro Responsável"
+        )
+        crea = overrides.get("crea") or getattr(current_user, "crea", None) or "CREA-XX / XXXXXX-D"
+        empresa = overrides.get("empresa") or company_name or "BK Engenharia e Tecnologia"
+        email = overrides.get("email") or getattr(current_user, "email", None) or "---"
+        telefone = overrides.get("telefone") or contact_phone or "---"
+        cliente = overrides.get("cliente") or client_name or "---"
+        local = overrides.get("local") or "---"
+        concessionaria = overrides.get("concessionaria") or study.utility_name or "---"
+
+        study_info = {
+            "numero": str(study.id)[:8].upper(),
+            "doc_code": overrides.get("doc_code") or f"BK-EP-{str(study.id)[:8].upper()}",
+            "projeto": project.name if project else "—",
+            "cliente": cliente,
+            "local": local,
+            "concessionaria": concessionaria,
+            "tensao_entrega": f"{float(study.v_base_kv or 13.8):.1f} kV",
+            "revisao": overrides.get("revisao") or "R0",
+            "data": _dt.date.today().strftime("%d/%m/%Y"),
+            "elaborado": engenheiro,
+            "engenheiro": engenheiro,
+            "crea": crea,
+            "empresa": empresa,
+            "cargo": overrides.get("cargo") or "Engenheiro Eletricista",
+            "telefone": telefone,
+            "email": email,
+            "voltage_factor_c": float(study.voltage_factor_c or 1.10),
         }
 
-    async def generate_pdf(self, study_id: uuid.UUID) -> Optional[str]:
-        """Gera PDF do relatório técnico via WeasyPrint."""
-        try:
-            from weasyprint import HTML  # type: ignore
-        except ImportError:
-            return None
+        from engine.reports.relatorio_protecao import gerar_relatorio_protecao
 
-        context = await self.build_report_context(study_id)
-        if not context:
-            return None
-
-        from jinja2 import Environment, FileSystemLoader
-        env = Environment(loader=FileSystemLoader(settings.TEMPLATES_DIR))
-        template = env.get_template("reports/report_template.html")
-        html_content = template.render(**context)
-
-        reports_dir = settings.get_reports_path()
-        pdf_path = reports_dir / f"relatorio_bk_{study_id}.pdf"
-        HTML(string=html_content).write_pdf(str(pdf_path))
-        return str(pdf_path)
+        buf = gerar_relatorio_protecao(
+            study_info=study_info,
+            system=system_input,
+            elements=elem_inputs,
+            sc_results=result.short_circuit_results,
+            ct_results=result.ct_sizing,
+            vt_results=result.vt_sizing,
+            breaker_results=result.breaker_sizing,
+            relay_results=result.relay_settings,
+            coordenograma_b64=result.coordenograma_b64,
+        )
+        return buf
