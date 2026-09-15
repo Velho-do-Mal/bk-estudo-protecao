@@ -36,6 +36,10 @@ def _normalize_async_database_url(raw_url: str) -> str:
        convenção do libpq/psycopg. O driver asyncpg não reconhece
        'sslmode', apenas 'ssl'. Traduz um para o outro para não quebrar
        a conexão em produção.
+    3. O parâmetro "channel_binding=require" (também presente na string
+       padrão do Neon, usado pelo psql/libpq para SCRAM) não é um kwarg
+       aceito por asyncpg.connect() — precisa ser removido, senão a
+       conexão falha com TypeError.
     """
     if raw_url.startswith("sqlite"):
         return raw_url
@@ -44,15 +48,23 @@ def _normalize_async_database_url(raw_url: str) -> str:
     if url.drivername == "postgresql":
         url = url.set(drivername="postgresql+asyncpg")
 
-    if url.drivername == "postgresql+asyncpg" and "sslmode" in url.query:
-        # asyncpg aceita o MESMO valor de sslmode (disable/allow/prefer/
-        # require/verify-ca/verify-full) via SSLMode.parse(), só que sob a
-        # chave 'ssl' — não interpreta 'sslmode' quando os parâmetros
-        # chegam como kwargs estruturados (só quando embutido numa DSN
-        # crua), que é como o SQLAlchemy monta a chamada.
+    if url.drivername == "postgresql+asyncpg":
         query = dict(url.query)
-        query.setdefault("ssl", query.pop("sslmode"))
-        url = url.set(query=query)
+        changed = False
+        if "sslmode" in query:
+            # asyncpg aceita o MESMO valor de sslmode (disable/allow/
+            # prefer/require/verify-ca/verify-full) via SSLMode.parse(),
+            # só que sob a chave 'ssl' — não interpreta 'sslmode' quando
+            # os parâmetros chegam como kwargs estruturados (só quando
+            # embutido numa DSN crua), que é como o SQLAlchemy monta a
+            # chamada.
+            query.setdefault("ssl", query.pop("sslmode"))
+            changed = True
+        if "channel_binding" in query:
+            query.pop("channel_binding")
+            changed = True
+        if changed:
+            url = url.set(query=query)
 
     return url.render_as_string(hide_password=False)
 
@@ -72,6 +84,13 @@ if _is_sqlite:
     )
 else:
     # PostgreSQL / Neon
+    # statement_cache_size=0: Neon (e outros provedores) costuma expor um
+    # endpoint "-pooler" em modo transaction do PgBouncer, que reutiliza a
+    # mesma conexão física entre sessões distintas. O cache de prepared
+    # statements do asyncpg parte do princípio de conexão dedicada — sob
+    # pooling transacional isso quebra com erros como "prepared statement
+    # ... already exists" / "cached plan must not change result type".
+    # Desativar o cache é a orientação padrão do asyncpg para esse cenário.
     engine = create_async_engine(
         _ASYNC_DATABASE_URL,
         echo=settings.DEBUG,
@@ -79,6 +98,7 @@ else:
         pool_size=10,
         max_overflow=20,
         pool_recycle=300,
+        connect_args={"statement_cache_size": 0} if "-pooler." in _ASYNC_DATABASE_URL else {},
     )
 
 AsyncSessionLocal = async_sessionmaker(
