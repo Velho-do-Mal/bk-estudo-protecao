@@ -80,55 +80,65 @@ _RAW: list[dict] = [
 
     # ═══════════════════════════════════════════════════════════════════════════
     # CA — Condutor de Alumínio nu (All Aluminum Conductor — AAC)
-    # Ref.: ABNT NBR 8523 | IEC 60228 Class 2
-    # R1 = ρ_Al × 1000 / section × fator_torção (1.015)
-    # X1: espaçamento médio triângulo equilátero D=1,5 m, f=60 Hz
+    # Ref.: ABNT NBR 8523 | IEC 60228 Class 2 | catálogo Prysmian PD_006 (AAC)
+    # Designação usual de mercado/concessionária no Brasil: AWG/MCM ("nome de
+    # flor"), não mm² — por isso o catálogo é indexado por bitola AWG/MCM.
+    # R1 = valor real medido de catálogo do fabricante (Prysmian), a 20°C —
+    #      não é calculado, é o dado de placa do condutor.
+    # X1 = regressão log-linear (R²=0,994) sobre o catálogo anterior de X1 por
+    #      seção (mesma família de fórmula clássica X=k·ln(D/GMR)), aplicada
+    #      à seção real de cada bitola AWG/MCM: X1 = 0,49239 - 0,02999·ln(S[mm²])
     # Z0: Carson 60 Hz, ρ_solo = 100 Ω·m → R0 ≈ R1+0,15; X0 ≈ X1+0,30
     # ═══════════════════════════════════════════════════════════════════════════
-    {"id":"CA-10",   "name":"CA 10 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":10,   "r1":2.910,"x1":0.425,"r0":3.060,"x0":0.725,"A":75,  "kV":0},
-    {"id":"CA-16",   "name":"CA 16 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":16,   "r1":1.820,"x1":0.413,"r0":1.970,"x0":0.713,"A":105, "kV":0},
-    {"id":"CA-25",   "name":"CA 25 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":25,   "r1":1.157,"x1":0.400,"r0":1.307,"x0":0.700,"A":140, "kV":0},
-    {"id":"CA-35",   "name":"CA 35 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":35,   "r1":0.826,"x1":0.387,"r0":0.976,"x0":0.687,"A":170, "kV":0},
-    {"id":"CA-50",   "name":"CA 50 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":50,   "r1":0.580,"x1":0.375,"r0":0.730,"x0":0.675,"A":210, "kV":0},
-    {"id":"CA-70",   "name":"CA 70 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":70,   "r1":0.414,"x1":0.362,"r0":0.564,"x0":0.662,"A":260, "kV":0},
-    {"id":"CA-95",   "name":"CA 95 mm²",   "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":95,   "r1":0.305,"x1":0.352,"r0":0.455,"x0":0.652,"A":315, "kV":0},
-    {"id":"CA-120",  "name":"CA 120 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":120,  "r1":0.241,"x1":0.345,"r0":0.391,"x0":0.645,"A":360, "kV":0},
-    {"id":"CA-150",  "name":"CA 150 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":150,  "r1":0.193,"x1":0.339,"r0":0.343,"x0":0.639,"A":405, "kV":0},
-    {"id":"CA-185",  "name":"CA 185 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":185,  "r1":0.157,"x1":0.332,"r0":0.307,"x0":0.632,"A":455, "kV":0},
-    {"id":"CA-240",  "name":"CA 240 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":240,  "r1":0.121,"x1":0.325,"r0":0.271,"x0":0.625,"A":530, "kV":0},
-    {"id":"CA-300",  "name":"CA 300 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":300,  "r1":0.097,"x1":0.319,"r0":0.247,"x0":0.619,"A":595, "kV":0},
-    {"id":"CA-400",  "name":"CA 400 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":400,  "r1":0.073,"x1":0.312,"r0":0.223,"x0":0.612,"A":685, "kV":0},
-    {"id":"CA-500",  "name":"CA 500 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":500,  "r1":0.058,"x1":0.307,"r0":0.208,"x0":0.607,"A":775, "kV":0},
-    {"id":"CA-630",  "name":"CA 630 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":630,  "r1":0.046,"x1":0.301,"r0":0.196,"x0":0.601,"A":880, "kV":0},
-    {"id":"CA-800",  "name":"CA 800 mm²",  "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":800,  "r1":0.036,"x1":0.296,"r0":0.186,"x0":0.596,"A":990, "kV":0},
-    {"id":"CA-1000", "name":"CA 1000 mm²", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":1000, "r1":0.029,"x1":0.291,"r0":0.179,"x0":0.591,"A":1100,"kV":0},
+    {"id":"CA-4AWG", "name":"CA Rose (4 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":21.15, "r1":1.36309,"x1":0.40087,"r0":1.51309,"x0":0.70087,"A":130, "kV":0},
+    {"id":"CA-2AWG", "name":"CA Iris (2 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":33.62, "r1":0.85750,"x1":0.38697,"r0":1.00750,"x0":0.68697,"A":175, "kV":0},
+    {"id":"CA-1AWG", "name":"CA Pansy (1 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":42.41, "r1":0.67977,"x1":0.38001,"r0":0.82977,"x0":0.68001,"A":200, "kV":0},
+    {"id":"CA-1_0AWG", "name":"CA Poppy (1/0 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":53.52, "r1":0.53866,"x1":0.37303,"r0":0.68866,"x0":0.67303,"A":235, "kV":0},
+    {"id":"CA-2_0AWG", "name":"CA Aster (2/0 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":67.44, "r1":0.42748,"x1":0.36609,"r0":0.57748,"x0":0.66609,"A":270, "kV":0},
+    {"id":"CA-3_0AWG", "name":"CA Phlox (3/0 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":85.02, "r1":0.33909,"x1":0.35915,"r0":0.48909,"x0":0.65915,"A":315, "kV":0},
+    {"id":"CA-4_0AWG", "name":"CA Oxlip (4/0 AWG)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":107.22, "r1":0.26888,"x1":0.35219,"r0":0.41888,"x0":0.65219,"A":365, "kV":0},
+    {"id":"CA-266MCM", "name":"CA Daisy (266,8 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":135.19, "r1":0.21325,"x1":0.34524,"r0":0.36325,"x0":0.64524,"A":420, "kV":0},
+    {"id":"CA-336MCM", "name":"CA Tulip (336,4 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":170.45, "r1":0.16914,"x1":0.33829,"r0":0.31914,"x0":0.63829,"A":495, "kV":0},
+    {"id":"CA-397MCM", "name":"CA Canna (397,5 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":201.41, "r1":0.14314,"x1":0.33328,"r0":0.29314,"x0":0.63328,"A":550, "kV":0},
+    {"id":"CA-477MCM", "name":"CA Cosmos (477 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":241.69, "r1":0.11928,"x1":0.32782,"r0":0.26928,"x0":0.62782,"A":615, "kV":0},
+    {"id":"CA-556MCM", "name":"CA Dahlia (556,5 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":281.98, "r1":0.10224,"x1":0.32319,"r0":0.25224,"x0":0.62319,"A":680, "kV":0},
+    {"id":"CA-636MCM", "name":"CA Orchid (636 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":322.26, "r1":0.08946,"x1":0.31919,"r0":0.23946,"x0":0.61919,"A":745, "kV":0},
+    {"id":"CA-795MCM", "name":"CA Arbutus (795 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":402.82, "r1":0.07157,"x1":0.31250,"r0":0.22157,"x0":0.61250,"A":855, "kV":0},
+    {"id":"CA-954MCM", "name":"CA Magnolia (954 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":483.39, "r1":0.05640,"x1":0.30703,"r0":0.20640,"x0":0.60703,"A":950, "kV":0},
+    {"id":"CA-1033MCM", "name":"CA Blubell (1033,5 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":523.67, "r1":0.05505,"x1":0.30463,"r0":0.20505,"x0":0.60463,"A":1015, "kV":0},
+    {"id":"CA-1113MCM", "name":"CA Marigold (1113 MCM)", "group":"CA","conductor_type":"nu","material":"aluminio","section_mm2":563.96, "r1":0.05112,"x1":0.30240,"r0":0.20112,"x0":0.60240,"A":1040, "kV":0},
 
     # ═══════════════════════════════════════════════════════════════════════════
     # CAA — Condutor de Alumínio com Alma de Aço (ACSR)
-    # Ref.: ABNT NBR 14049 | ASTM B232
-    # Designação: seção Al / seção Fe (mm²)
-    # R1 baseado apenas na seção de Al (alma de aço não conduz significativamente)
-    # Nomes comerciais ONS/ANEEL incluídos para referência
+    # Ref.: ABNT NBR 14049 | ASTM B232 | catálogo Prysmian PD_009 (ACSR),
+    #       códigos-pássaro conforme ASTM B341 / EEI-NEMA.
+    # Designação usual de mercado/concessionária no Brasil: AWG/MCM (código-
+    # pássaro), não mm² — por isso o catálogo é indexado por bitola AWG/MCM.
+    # R1 = valor real medido de catálogo do fabricante (Prysmian), a 20°C.
+    # X1 = mesma regressão log-linear da família CA, recalibrada para CAA
+    #      (R²=0,995): X1 = 0,49413 - 0,03043·ln(S[mm²])
+    # Z0: Carson 60 Hz, ρ_solo = 100 Ω·m → R0 ≈ R1+0,15; X0 ≈ X1+0,30
+    # CORREÇÃO: a bitola de 900 MCM chamava-se "Cardinal" na versão anterior
+    # deste banco — pelo padrão ASTM/Prysmian, "Cardinal" é o código-pássaro
+    # de 954 MCM (mesma bitola de "Rail", já cadastrada); 900 MCM é "Canary".
     # ═══════════════════════════════════════════════════════════════════════════
-    {"id":"CAA-25",    "name":"CAA 25/4 mm²",          "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":25,   "r1":1.162,"x1":0.400,"r0":1.312,"x0":0.700,"A":135, "kV":0},
-    {"id":"CAA-35",    "name":"CAA 35/6 mm²",          "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":35,   "r1":0.832,"x1":0.388,"r0":0.982,"x0":0.688,"A":165, "kV":0},
-    {"id":"CAA-50",    "name":"CAA 50/8 mm²",          "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":50,   "r1":0.583,"x1":0.375,"r0":0.733,"x0":0.675,"A":200, "kV":0},
-    {"id":"CAA-70",    "name":"CAA 70/12 mm²",         "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":70,   "r1":0.417,"x1":0.363,"r0":0.567,"x0":0.663,"A":250, "kV":0},
-    {"id":"CAA-95",    "name":"CAA 95/16 mm²",         "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":95,   "r1":0.307,"x1":0.353,"r0":0.457,"x0":0.653,"A":305, "kV":0},
-    {"id":"CAA-120",   "name":"CAA 120/20 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":120,  "r1":0.243,"x1":0.346,"r0":0.393,"x0":0.646,"A":350, "kV":0},
-    {"id":"CAA-150",   "name":"CAA 150/25 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":150,  "r1":0.195,"x1":0.340,"r0":0.345,"x0":0.640,"A":395, "kV":0},
-    {"id":"CAA-185",   "name":"CAA 185/30 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":185,  "r1":0.158,"x1":0.334,"r0":0.308,"x0":0.634,"A":445, "kV":0},
-    {"id":"CAA-240",   "name":"CAA 240/40 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":240,  "r1":0.122,"x1":0.327,"r0":0.272,"x0":0.627,"A":515, "kV":0},
-    {"id":"CAA-300",   "name":"CAA 300/50 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":300,  "r1":0.098,"x1":0.321,"r0":0.248,"x0":0.621,"A":580, "kV":0},
-    {"id":"CAA-400",   "name":"CAA 400/65 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":400,  "r1":0.074,"x1":0.315,"r0":0.224,"x0":0.615,"A":665, "kV":0},
-    {"id":"CAA-500",   "name":"CAA 500/65 mm²",        "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":500,  "r1":0.059,"x1":0.309,"r0":0.209,"x0":0.609,"A":755, "kV":0},
-    # Designações MCM/nomes ONS — transmissão
-    {"id":"CAA-LINNET","name":"CAA Linnet (336 MCM / 170 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":170,  "r1":0.170,"x1":0.337,"r0":0.320,"x0":0.637,"A":420, "kV":0},
-    {"id":"CAA-HAWK",  "name":"CAA Hawk  (477 MCM / 241 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":241,  "r1":0.121,"x1":0.327,"r0":0.271,"x0":0.627,"A":510, "kV":0},
-    {"id":"CAA-IBIS",  "name":"CAA Ibis  (397 MCM / 200 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":200,  "r1":0.145,"x1":0.331,"r0":0.295,"x0":0.631,"A":465, "kV":0},
-    {"id":"CAA-TERN",  "name":"CAA Tern  (795 MCM / 403 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":403,  "r1":0.073,"x1":0.311,"r0":0.223,"x0":0.611,"A":670, "kV":0},
-    {"id":"CAA-RAIL",  "name":"CAA Rail  (954 MCM / 483 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":483,  "r1":0.061,"x1":0.306,"r0":0.211,"x0":0.606,"A":750, "kV":0},
-    {"id":"CAA-CARDINAL","name":"CAA Cardinal (900 MCM / 456 mm²)","group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":456,"r1":0.064,"x1":0.308,"r0":0.214,"x0":0.608,"A":730, "kV":0},
+    {"id":"CAA-8AWG", "name":"CAA Wren (8 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":8.37, "r1":3.42747,"x1":0.42948,"r0":3.57747,"x0":0.72948,"A":71, "kV":0},
+    {"id":"CAA-6AWG", "name":"CAA Turkey (6 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":13.3, "r1":2.15699,"x1":0.41538,"r0":2.30699,"x0":0.71538,"A":95, "kV":0},
+    {"id":"CAA-4AWG", "name":"CAA Swan (4 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":21.15, "r1":1.35640,"x1":0.40127,"r0":1.50640,"x0":0.70127,"A":130, "kV":0},
+    {"id":"CAA-2AWG", "name":"CAA Sparrow (2 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":33.59, "r1":0.85406,"x1":0.38719,"r0":1.00406,"x0":0.68719,"A":175, "kV":0},
+    {"id":"CAA-1_0AWG", "name":"CAA Raven (1/0 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":53.52, "r1":0.53602,"x1":0.37302,"r0":0.68602,"x0":0.67302,"A":230, "kV":0},
+    {"id":"CAA-2_0AWG", "name":"CAA Quail (2/0 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":67.33, "r1":0.42608,"x1":0.36603,"r0":0.57608,"x0":0.66603,"A":265, "kV":0},
+    {"id":"CAA-3_0AWG", "name":"CAA Pigeon (3/0 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":85.12, "r1":0.33703,"x1":0.35890,"r0":0.48703,"x0":0.65890,"A":310, "kV":0},
+    {"id":"CAA-4_0AWG", "name":"CAA Penguin (4/0 AWG)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":107.2, "r1":0.26761,"x1":0.35188,"r0":0.41761,"x0":0.65188,"A":350, "kV":0},
+    {"id":"CAA-266MCM", "name":"CAA Partridge (266,8 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":135.19, "r1":0.21430,"x1":0.34482,"r0":0.36430,"x0":0.64482,"A":440, "kV":0},
+    {"id":"CAA-LINNET", "name":"CAA Linnet (336,4 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":170.45, "r1":0.16996,"x1":0.33777,"r0":0.31996,"x0":0.63777,"A":510, "kV":0},
+    {"id":"CAA-IBIS", "name":"CAA Ibis (397,5 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":201.41, "r1":0.14384,"x1":0.33269,"r0":0.29384,"x0":0.63269,"A":570, "kV":0},
+    {"id":"CAA-HAWK", "name":"CAA Hawk (477 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":241.7, "r1":0.11986,"x1":0.32714,"r0":0.26986,"x0":0.62714,"A":640, "kV":0},
+    {"id":"CAA-DOVE", "name":"CAA Dove (556,5 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":281.98, "r1":0.10274,"x1":0.32245,"r0":0.25274,"x0":0.62245,"A":710, "kV":0},
+    {"id":"CAA-GROSBEAK", "name":"CAA Grosbeak (636 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":322.26, "r1":0.08990,"x1":0.31839,"r0":0.23990,"x0":0.61839,"A":775, "kV":0},
+    {"id":"CAA-TERN", "name":"CAA Tern (795 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":402.83, "r1":0.07192,"x1":0.31160,"r0":0.22192,"x0":0.61160,"A":875, "kV":0},
+    {"id":"CAA-CANARY", "name":"CAA Canary (900 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":456.03, "r1":0.06353,"x1":0.30782,"r0":0.21353,"x0":0.60782,"A":955, "kV":0},
+    {"id":"CAA-RAIL", "name":"CAA Rail / Cardinal (954 MCM)", "group":"CAA","conductor_type":"nu","material":"aluminio_aco","section_mm2":483.39, "r1":0.05993,"x1":0.30605,"r0":0.20993,"x0":0.60605,"A":995, "kV":0},
 
     # ═══════════════════════════════════════════════════════════════════════════
     # CAL — Condutor de Alumínio Liga (AAAC — Liga 6201)

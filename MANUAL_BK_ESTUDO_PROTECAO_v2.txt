@@ -92,9 +92,10 @@ PASSO 5: Preencher a Grade de Trechos (da fonte até os pontos finais)
   │  • Código: identificação do ponto (ex: P1, F1, TR-A)                │
   │  • V [kV]: tensão nominal do trecho                                 │
   │  • L [km]: comprimento do trecho                                    │
-  │  • Condutor: nome do cabo (ex: 95CAL, CAA-185, XLPE-240)            │
-  │    → Ao digitar e sair do campo, o software busca automaticamente   │
-  │      R1 e X1 do banco de condutores BK (120 condutores)             │
+  │  • Condutor: nome do cabo — digite ou escolha na lista sugerida      │
+  │    (ex: "CAA Hawk (477 MCM)", "CAL 95 mm²", "XLPE-Al 95 mm² MT")     │
+  │    → Ao escolher/sair do campo, o software busca automaticamente    │
+  │      R1, X1, R0 e X0 do banco de condutores BK (119 condutores)     │
   │  • R1 [Ω/km]: resistência de seq. positiva (auto ou manual)         │
   │  • X1 [Ω/km]: reatância de seq. positiva (auto ou manual)           │
   │  → Z_trecho = (R1 + jX1) × L                                        │
@@ -163,16 +164,25 @@ CAMPO: V [kV]
 
 CAMPO: L [km]
   O quê: Comprimento do trecho de linha ou cabo
-  Por que: Z_trecho = (R1 + jX1) × L. Um trecho de 10 km de CAA-185
-           tem Z1 ≈ 10 × (0,175 + j0,396) = (1,75 + j3,96) Ω.
+  Por que: Z_trecho = (R1 + jX1) × L. Um trecho de 10 km de CAA Hawk
+           (477 MCM) tem Z1 ≈ 10 × (0,120 + j0,327) = (1,20 + j3,27) Ω.
   ATENÇÃO: Informe em km (não metros). 500 m = 0,500 km.
 
 CAMPO: Condutor (nome)
-  O quê: Designação do cabo (ex: "CAA-185", "95CAL", "XLPE-240-Al-MT")
-  Por que: O software busca automaticamente R1 e X1 do banco de
-           condutores (120 condutores cadastrados: CA, CAA, CAL, Cu nu,
+  O quê: Designação do cabo — o campo sugere automaticamente (autocomplete)
+         os nomes cadastrados conforme você digita.
+  Por que: O software busca automaticamente R1, X1, R0 e X0 do banco de
+           condutores (119 condutores cadastrados: CA, CAA, CAL, Cu nu,
            XLPE-Al MT, XLPE-Cu MT, PVC-Cu BT, PVC-Al BT).
-  DICA: Se o condutor não for encontrado, preencha R1 e X1 manualmente.
+  NOMENCLATURA: condutor aéreo NU (CA, CAA) é identificado por bitola
+           AWG/MCM — o padrão real de mercado/concessionária no Brasil
+           (ex: "CA Rose (4 AWG)", "CAA Hawk (477 MCM)"), NÃO em mm².
+           CAL, Cu nu e os cabos isolados subterrâneos (XLPE, PVC)
+           continuam em mm², que é como são catalogados no Brasil.
+  DICA: Mesmo após escolher da lista, R1/X1/R0/X0 continuam editáveis —
+        sobrescreva com o dado real de catálogo do fabricante quando o
+        cabo do projeto for diferente do cadastrado no software.
+        Se o condutor não for encontrado, preencha R1/X1/R0/X0 manualmente.
 
 CAMPO: R1 [Ω/km] e X1 [Ω/km]
   O quê: Resistência e reatância de sequência positiva por km
@@ -243,16 +253,28 @@ CAMPO: R_fonte [Ω] e X_fonte [Ω]
 5. BANCO DE CONDUTORES
 ================================================================================
 
-O software possui 120 condutores cadastrados em 8 grupos:
+O software possui 119 condutores cadastrados em 8 grupos. O campo
+"Condutor" da grade sugere os nomes automaticamente (autocomplete)
+enquanto você digita.
+
+NOMENCLATURA: CA e CAA são catalogados por bitola AWG/MCM (o padrão
+real de mercado/concessionária no Brasil — confirmado nos catálogos
+de fabricante); CAL, Cu nu e os cabos isolados (XLPE, PVC) continuam
+em mm², que é como são vendidos/catalogados no Brasil.
 
 GRUPO CA — Alumínio Nu (AAC / All Aluminum Conductor):
-  Seções: 16 a 1000 mm². Uso: linhas aéreas de distribuição MT.
-  Exemplos: CA-16, CA-50, CA-95, CA-185, CA-240, CA-500, CA-1000
+  Bitolas: 4 AWG a 1113 MCM (17 bitolas, "nome de flor" do fabricante).
+  Uso: linhas aéreas de distribuição MT.
+  Exemplos: CA Rose (4 AWG), CA Oxlip (4/0 AWG), CA Tulip (336,4 MCM),
+  CA Arbutus (795 MCM), CA Marigold (1113 MCM)
 
 GRUPO CAA — Alumínio com Alma de Aço (ACSR / Aluminum Conductor Steel Reinforced):
-  Seções: 25 a 500 mm² + condutores nomeados (Linnet, Hawk, Tern, Rail, Cardinal).
+  Bitolas: 8 AWG a 954 MCM (17 bitolas, "código-pássaro" do fabricante).
   Uso: linhas aéreas de transmissão e distribuição AT/MT.
-  Exemplos: CAA-25, CAA-95, CAA-185, Linnet (336,4 MCM), Cardinal (900 MCM)
+  Exemplos: CAA Swan (4 AWG), CAA Penguin (4/0 AWG), CAA Linnet (336,4 MCM),
+  CAA Hawk (477 MCM), CAA Tern (795 MCM), CAA Rail / Cardinal (954 MCM)
+  OBS: a bitola de 900 MCM chama-se "Canary" (corrigido nesta versão —
+  "Cardinal" é o nome correto de 954 MCM, mesma bitola de "Rail").
 
 GRUPO CAL — Alumínio Liga Nu (AAAC / All Aluminum Alloy Conductor):
   Seções: 16 a 636 mm². Uso: linhas aéreas MT onde se exige maior resistência
@@ -279,7 +301,7 @@ GRUPO PVC_AL_BT — Cabo Isolado Alumínio BT (PVC):
   Seções: 16 a 300 mm². Uso: redes BT, redes de distribuição secundária.
 
 Acesso direto ao banco: GET /api/cables/ (com filtros opcionais)
-Busca por nome: GET /api/cables/search?name=CAA-185
+Busca por nome: GET /api/cables/search?name=CAA Hawk (477 MCM)
 Grupos disponíveis: GET /api/cables/groups
 
 

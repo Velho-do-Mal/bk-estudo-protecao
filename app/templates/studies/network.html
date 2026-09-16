@@ -196,7 +196,7 @@
               <td><input type="text" x-model="row.name" placeholder="ex: Trecho 1, SE Principal"></td>
               <td><input type="number" x-model.number="row.voltage_kv" step="0.1" min="0" :placeholder="studyParams.v_base_kv"></td>
               <td><input type="number" x-model.number="row.length_km" step="0.001" min="0" placeholder="0.000"></td>
-              <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" placeholder="ex: 95CAL, CAA-185"></td>
+              <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" list="cableSuggestions" placeholder="ex: CAA Hawk (477 MCM), XLPE-Al 95 mm² MT" title="Digite ou escolha da lista — R1/X1/R0/X0 preenchem automático, mas continuam editáveis para valor real de fabricante"></td>
               <td><input type="number" x-model.number="row.r1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.r0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3,5×R1 aérea / 3,5×R1 cabo)"></td>
@@ -285,6 +285,12 @@
           </template>
         </tbody>
       </table>
+
+      <datalist id="cableSuggestions">
+        <template x-for="name in availableCables" :key="name">
+          <option :value="name"></option>
+        </template>
+      </datalist>
     </div>
 
     <div style="border-top:1px solid var(--line); padding:10px 16px; display:flex; justify-content:space-between; align-items:center; background:var(--bg);">
@@ -538,6 +544,7 @@ function networkGrid() {
     },
 
     rows: [],
+    availableCables: [],
     calcResults: [],
     ctResults: [],
     vtResults: [],
@@ -578,6 +585,17 @@ function networkGrid() {
       } else {
         for (let i = 0; i < 5; i++) this.addRow();
       }
+      this.loadCableCatalog();
+    },
+
+    async loadCableCatalog() {
+      try {
+        const resp = await fetch('/api/cables/');
+        if (resp.ok) {
+          const cables = await resp.json();
+          this.availableCables = cables.map(c => c.name);
+        }
+      } catch (e) { /* catálogo é só apoio para preenchimento — segue sem autocomplete se falhar */ }
     },
 
     elemToRow(e, i) {
