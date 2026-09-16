@@ -61,135 +61,42 @@
 
           <line :x1="20" :y1="58" :x2="svgWidth-20" :y2="58" stroke="#e2e8f0" stroke-width="1"/>
 
-          <g transform="translate(0,0)">
-            <template x-if="elements.length >= 0">
-              <g :transform="'translate(' + centerX + ', 75)'">
-                <polygon points="0,-18 -16,10 16,10" fill="none" stroke="#0a3d63" stroke-width="2"/>
-                <line x1="0" y1="10" x2="0" y2="25" stroke="#0a3d63" stroke-width="3"/>
-                <text x="22" y="-8" font-size="10" fill="#0a3d63" font-weight="bold">P0 — Fonte/Concessionária</text>
-                <text x="22" y="5" font-size="9" fill="#64748b">
-                  <tspan x-text="'Scc: ' + (sccMva > 0 ? sccMva.toFixed(0) + ' MVA' : 'Não informado')"></tspan>
-                </text>
-                <text x="22" y="18" font-size="9" fill="#64748b">
-                  <tspan x-text="'Zcc: R=' + zr.toFixed(4) + ' Ω  X=' + zx.toFixed(4) + ' Ω'"></tspan>
-                </text>
-              </g>
-            </template>
+          <!-- IMPORTANTE: o conteúdo dinâmico abaixo é montado via x-html/x-show, e
+               NÃO via <template x-if>/<template x-for> do Alpine.js. Motivo: dentro de
+               um <svg> inline, o navegador NÃO cria o DocumentFragment (.content) de um
+               <template>, então o Alpine falha silenciosamente ao tentar clonar esses
+               blocos (nenhum erro visível na tela — só um aviso no console) e nada é
+               desenhado. x-html/x-show atuam sobre elementos SVG reais já existentes no
+               DOM (via innerHTML / display:none), o que funciona corretamente dentro de
+               SVG. O bloco da fonte abaixo virou um <g> normal (a condição antiga
+               "elements.length >= 0" era sempre verdadeira); a lista de elementos é
+               montada pelo getter elementsMarkup(), definido no bloco de script JS
+               logo após o fechamento deste <svg>. -->
+
+          <g :transform="'translate(' + centerX + ', 75)'">
+            <polygon points="0,-18 -16,10 16,10" fill="none" stroke="#0a3d63" stroke-width="2"/>
+            <line x1="0" y1="10" x2="0" y2="25" stroke="#0a3d63" stroke-width="3"/>
+            <text x="22" y="-8" font-size="10" fill="#0a3d63" font-weight="bold">P0 — Fonte/Concessionária</text>
+            <text x="22" y="5" font-size="9" fill="#64748b">
+              <tspan x-text="'Scc: ' + (sccMva > 0 ? sccMva.toFixed(0) + ' MVA' : 'Não informado')"></tspan>
+            </text>
+            <text x="22" y="18" font-size="9" fill="#64748b">
+              <tspan x-text="'Zcc: R=' + zr.toFixed(4) + ' Ω  X=' + zx.toFixed(4) + ' Ω'"></tspan>
+            </text>
           </g>
 
-          <template x-for="(elem, idx) in elements" :key="elem.id || idx">
-            <g :transform="'translate(' + centerX + ',' + elemY(idx) + ')'">
+          <g x-html="elementsMarkup"></g>
 
-              <line x1="0" y1="-20" x2="0" y2="-4" :stroke="voltageColor(elem.voltage_kv)" stroke-width="2.5" marker-end="url(#arrow)"/>
+          <g x-show="elements.length > 0" :transform="'translate(' + centerX + ',' + (elemY(elements.length) + 10) + ')'">
+            <line x1="-25" y1="0" x2="25" y2="0" stroke="#94a3b8" stroke-width="3"/>
+            <line x1="-10" y1="8" x2="10" y2="8" stroke="#94a3b8" stroke-width="2"/>
+            <line x1="-4" y1="14" x2="4" y2="14" stroke="#94a3b8" stroke-width="1.5"/>
+            <text x="0" y="26" text-anchor="middle" font-size="9" fill="#94a3b8">Ponto final / Carga</text>
+          </g>
 
-              <template x-if="showZones && (elem.element_type === 'transformador' || elem.element_type === 'linha' || elem.element_type === 'cabo')">
-                <ellipse cx="0" cy="20" rx="60" ry="30" fill="url(#zone-hatch)" stroke="#93c5fd" stroke-width="1" stroke-dasharray="4,2" opacity="0.6"/>
-              </template>
-
-              <template x-if="!elem.has_protection && elem.element_type !== 'barra'">
-                <text x="0" y="-26" text-anchor="middle" font-size="8" fill="#e0a30a" font-weight="bold">SEM PROTEÇÃO</text>
-              </template>
-
-              <template x-if="elem.element_type === 'linha' || elem.element_type === 'cabo' || elem.element_type === 'alimentador'">
-                <g>
-                  <rect x="-28" y="-3" width="56" height="20" rx="2" :fill="voltageColor(elem.voltage_kv) + '22'" :stroke="voltageColor(elem.voltage_kv)" stroke-width="1.5"/>
-                  <text x="0" y="12" text-anchor="middle" font-size="9" :fill="voltageColor(elem.voltage_kv)" font-weight="bold"
-                        x-text="elem.element_type === 'cabo' ? 'CABO' : elem.element_type === 'alimentador' ? 'ALIM.' : 'LINHA'"></text>
-                  <text x="38" y="2" font-size="10" font-weight="bold" fill="#0a3d63" x-text="elem.code || ('P' + (idx+1))"></text>
-                  <text x="38" y="13" font-size="9" fill="#64748b" x-text="elem.name ? elem.name.substring(0,28) : ''"></text>
-                  <text x="-38" y="2" text-anchor="end" font-size="9" fill="#334155" x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
-                  <text x="-38" y="13" text-anchor="end" font-size="9" fill="#64748b"
-                        x-text="(elem.length_km > 0 ? elem.length_km.toFixed(2) + ' km' : '') + (elem.cable_name ? '  ' + elem.cable_name : '')"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'transformador'">
-                <g>
-                  <circle cx="-7" cy="5" r="12" fill="none" stroke="#2ba0d8" stroke-width="2"/>
-                  <circle cx="7" cy="5" r="12" fill="none" stroke="#2ba0d8" stroke-width="2"/>
-                  <text x="32" y="-2" font-size="10" font-weight="bold" fill="#0a3d63" x-text="elem.code || ('TR-' + (idx+1))"></text>
-                  <text x="32" y="9" font-size="9" fill="#64748b" x-text="elem.name ? elem.name.substring(0,28) : ''"></text>
-                  <text x="-28" y="-2" text-anchor="end" font-size="9" fill="#2ba0d8" font-weight="bold" x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
-                  <text x="-28" y="9" text-anchor="end" font-size="9" fill="#64748b"
-                        x-text="elem.trafo_kva ? elem.trafo_kva.toFixed(0) + ' kVA | %Z=' + (elem.trafo_z_percent||0).toFixed(1) + '%' : ''"></text>
-                  <template x-if="elem.trafo_voltage_sec_kv > 0">
-                    <text x="32" y="22" font-size="8" fill="#2ba0d8" x-text="'→ ' + elem.trafo_voltage_sec_kv + ' kV'"></text>
-                  </template>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'disjuntor'">
-                <g>
-                  <rect x="-8" y="-6" width="16" height="18" rx="2" fill="white" stroke="#dc2626" stroke-width="2"/>
-                  <text x="0" y="8" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="bold">DJ</text>
-                  <text x="18" y="2" font-size="10" font-weight="bold" fill="#dc2626" x-text="elem.code || ('DJ-' + (idx+1))"></text>
-                  <text x="18" y="12" font-size="9" fill="#64748b" x-text="elem.name || ''"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'seccionadora'">
-                <g>
-                  <rect x="-10" y="-4" width="20" height="14" rx="1" fill="white" stroke="#7c3aed" stroke-width="1.5"/>
-                  <text x="0" y="7" text-anchor="middle" font-size="7" fill="#7c3aed" font-weight="bold">SEC</text>
-                  <text x="18" y="2" font-size="10" font-weight="bold" fill="#7c3aed" x-text="elem.code || ('S-' + (idx+1))"></text>
-                  <text x="18" y="12" font-size="9" fill="#64748b" x-text="elem.name || ''"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'barra'">
-                <g>
-                  <line x1="-70" y1="6" x2="70" y2="6" :stroke="voltageColor(elem.voltage_kv)" stroke-width="5"/>
-                  <text x="80" y="10" font-size="10" font-weight="bold" :fill="voltageColor(elem.voltage_kv)" x-text="elem.code || ('BRR-' + (idx+1))"></text>
-                  <text x="80" y="22" font-size="9" fill="#64748b" x-text="(elem.voltage_kv || studyV) + ' kV'"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'gerador'">
-                <g>
-                  <circle cx="0" cy="5" r="14" fill="none" stroke="#059669" stroke-width="2"/>
-                  <text x="0" y="9" text-anchor="middle" font-size="11" fill="#059669" font-weight="bold">G</text>
-                  <text x="22" y="2" font-size="10" font-weight="bold" fill="#059669" x-text="elem.code || ('GER-' + (idx+1))"></text>
-                  <text x="22" y="14" font-size="9" fill="#64748b"
-                        x-text="elem.gen_s_sub_mva ? (elem.gen_s_sub_mva * 1000).toFixed(0) + ' kVA | X\'\'=' + (elem.gen_xpp_percent||0).toFixed(1) + '%' : ''"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'motor'">
-                <g>
-                  <circle cx="0" cy="5" r="14" fill="none" stroke="#0284c7" stroke-width="2"/>
-                  <text x="0" y="9" text-anchor="middle" font-size="11" fill="#0284c7" font-weight="bold">M</text>
-                  <text x="22" y="2" font-size="10" font-weight="bold" fill="#0284c7" x-text="elem.code || ('MOT-' + (idx+1))"></text>
-                  <text x="22" y="14" font-size="9" fill="#64748b" x-text="elem.motor_s_mva ? (elem.motor_s_mva * 1000).toFixed(0) + ' kVA' : ''"></text>
-                </g>
-              </template>
-
-              <template x-if="elem.element_type === 'carga'">
-                <g>
-                  <polygon points="0,-6 -12,12 12,12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
-                  <text x="20" y="4" font-size="10" font-weight="bold" fill="#16a34a" x-text="elem.code || ('CARGA-' + (idx+1))"></text>
-                </g>
-              </template>
-
-              <line x1="0" y1="25" x2="0" y2="42"
-                    :stroke="voltageColor(elem.element_type === 'transformador' && elem.trafo_voltage_sec_kv > 0 ? elem.trafo_voltage_sec_kv : (elem.voltage_kv || studyV))"
-                    stroke-width="2.5" opacity="0.4"/>
-            </g>
-          </template>
-
-          <template x-if="elements.length > 0">
-            <g :transform="'translate(' + centerX + ',' + (elemY(elements.length) + 10) + ')'">
-              <line x1="-25" y1="0" x2="25" y2="0" stroke="#94a3b8" stroke-width="3"/>
-              <line x1="-10" y1="8" x2="10" y2="8" stroke="#94a3b8" stroke-width="2"/>
-              <line x1="-4" y1="14" x2="4" y2="14" stroke="#94a3b8" stroke-width="1.5"/>
-              <text x="0" y="26" text-anchor="middle" font-size="9" fill="#94a3b8">Ponto final / Carga</text>
-            </g>
-          </template>
-
-          <template x-if="elements.length === 0">
-            <text x="50%" y="180" text-anchor="middle" font-size="13" fill="#94a3b8">
-              Nenhum elemento cadastrado. Acesse "Rede / Cálculo" para adicionar trechos.
-            </text>
-          </template>
+          <text x-show="elements.length === 0" x="50%" y="180" text-anchor="middle" font-size="13" fill="#94a3b8">
+            Nenhum elemento cadastrado. Acesse "Rede / Cálculo" para adicionar trechos.
+          </text>
 
           <g :transform="'translate(20,' + (svgHeight - 80) + ')'">
             <rect x="0" y="0" :width="svgWidth - 40" height="70" rx="4" fill="#f8fafc" stroke="#e2e8f0"/>
@@ -273,6 +180,95 @@ function diagramPage() {
       if (kv >= 36) return '#2563eb';
       if (kv >= 1) return '#ea580c';
       return '#16a34a';
+    },
+
+    esc(s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    },
+
+    // Monta o SVG de todos os elementos como string (via innerHTML/x-html) — ver
+    // comentário no bloco <svg> acima sobre por que não se usa <template x-for> aqui.
+    // Reproduz, um a um, os mesmos símbolos/campos que antes estavam nos blocos
+    // <template x-if> por tipo de elemento (linha/cabo/alimentador, transformador,
+    // disjuntor, seccionadora, barra, gerador, motor, carga).
+    get elementsMarkup() {
+      return this.elements.map((elem, idx) => this._elemSvg(elem, idx)).join('');
+    },
+
+    _elemSvg(elem, idx) {
+      const cx = this.centerX, y = this.elemY(idx);
+      const color = this.voltageColor(elem.voltage_kv);
+      const et = elem.element_type;
+      let out = `<g transform="translate(${cx},${y})">`;
+
+      out += `<line x1="0" y1="-20" x2="0" y2="-4" stroke="${color}" stroke-width="2.5" marker-end="url(#arrow)"></line>`;
+
+      if (this.showZones && (et === 'transformador' || et === 'linha' || et === 'cabo')) {
+        out += `<ellipse cx="0" cy="20" rx="60" ry="30" fill="url(#zone-hatch)" stroke="#93c5fd" stroke-width="1" stroke-dasharray="4,2" opacity="0.6"></ellipse>`;
+      }
+      if (!elem.has_protection && et !== 'barra') {
+        out += `<text x="0" y="-26" text-anchor="middle" font-size="8" fill="#e0a30a" font-weight="bold">SEM PROTEÇÃO</text>`;
+      }
+
+      if (et === 'linha' || et === 'cabo' || et === 'alimentador') {
+        const rot = et === 'cabo' ? 'CABO' : (et === 'alimentador' ? 'ALIM.' : 'LINHA');
+        const det = ((elem.length_km > 0) ? elem.length_km.toFixed(2) + ' km' : '') + (elem.cable_name ? '  ' + this.esc(elem.cable_name) : '');
+        out += `
+          <rect x="-28" y="-3" width="56" height="20" rx="2" fill="${color}22" stroke="${color}" stroke-width="1.5"></rect>
+          <text x="0" y="12" text-anchor="middle" font-size="9" fill="${color}" font-weight="bold">${rot}</text>
+          <text x="38" y="2" font-size="10" font-weight="bold" fill="#0a3d63">${this.esc(elem.code || ('P' + (idx+1)))}</text>
+          <text x="38" y="13" font-size="9" fill="#64748b">${this.esc((elem.name || '').substring(0,28))}</text>
+          <text x="-38" y="2" text-anchor="end" font-size="9" fill="#334155">${(elem.voltage_kv || this.studyV)} kV</text>
+          <text x="-38" y="13" text-anchor="end" font-size="9" fill="#64748b">${this.esc(det)}</text>`;
+      } else if (et === 'trafo' || et === 'transformador') {
+        out += `
+          <circle cx="-7" cy="5" r="12" fill="none" stroke="#2ba0d8" stroke-width="2"></circle>
+          <circle cx="7" cy="5" r="12" fill="none" stroke="#2ba0d8" stroke-width="2"></circle>
+          <text x="32" y="-2" font-size="10" font-weight="bold" fill="#0a3d63">${this.esc(elem.code || ('TR-' + (idx+1)))}</text>
+          <text x="32" y="9" font-size="9" fill="#64748b">${this.esc((elem.name || '').substring(0,28))}</text>
+          <text x="-28" y="-2" text-anchor="end" font-size="9" fill="#2ba0d8" font-weight="bold">${(elem.voltage_kv || this.studyV)} kV</text>
+          <text x="-28" y="9" text-anchor="end" font-size="9" fill="#64748b">${elem.trafo_kva ? (elem.trafo_kva.toFixed(0) + ' kVA | %Z=' + (elem.trafo_z_percent || 0).toFixed(1) + '%') : ''}</text>
+          ${elem.trafo_voltage_sec_kv > 0 ? `<text x="32" y="22" font-size="8" fill="#2ba0d8">→ ${elem.trafo_voltage_sec_kv} kV</text>` : ''}`;
+      } else if (et === 'disjuntor') {
+        out += `
+          <rect x="-8" y="-6" width="16" height="18" rx="2" fill="white" stroke="#dc2626" stroke-width="2"></rect>
+          <text x="0" y="8" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="bold">DJ</text>
+          <text x="18" y="2" font-size="10" font-weight="bold" fill="#dc2626">${this.esc(elem.code || ('DJ-' + (idx+1)))}</text>
+          <text x="18" y="12" font-size="9" fill="#64748b">${this.esc(elem.name || '')}</text>`;
+      } else if (et === 'seccionadora') {
+        out += `
+          <rect x="-10" y="-4" width="20" height="14" rx="1" fill="white" stroke="#7c3aed" stroke-width="1.5"></rect>
+          <text x="0" y="7" text-anchor="middle" font-size="7" fill="#7c3aed" font-weight="bold">SEC</text>
+          <text x="18" y="2" font-size="10" font-weight="bold" fill="#7c3aed">${this.esc(elem.code || ('S-' + (idx+1)))}</text>
+          <text x="18" y="12" font-size="9" fill="#64748b">${this.esc(elem.name || '')}</text>`;
+      } else if (et === 'barra') {
+        out += `
+          <line x1="-70" y1="6" x2="70" y2="6" stroke="${color}" stroke-width="5"></line>
+          <text x="80" y="10" font-size="10" font-weight="bold" fill="${color}">${this.esc(elem.code || ('BRR-' + (idx+1)))}</text>
+          <text x="80" y="22" font-size="9" fill="#64748b">${(elem.voltage_kv || this.studyV)} kV</text>`;
+      } else if (et === 'gerador') {
+        out += `
+          <circle cx="0" cy="5" r="14" fill="none" stroke="#059669" stroke-width="2"></circle>
+          <text x="0" y="9" text-anchor="middle" font-size="11" fill="#059669" font-weight="bold">G</text>
+          <text x="22" y="2" font-size="10" font-weight="bold" fill="#059669">${this.esc(elem.code || ('GER-' + (idx+1)))}</text>
+          <text x="22" y="14" font-size="9" fill="#64748b">${elem.gen_s_sub_mva ? ((elem.gen_s_sub_mva * 1000).toFixed(0) + " kVA | X''=" + (elem.gen_xpp_percent || 0).toFixed(1) + '%') : ''}</text>`;
+      } else if (et === 'motor') {
+        out += `
+          <circle cx="0" cy="5" r="14" fill="none" stroke="#0284c7" stroke-width="2"></circle>
+          <text x="0" y="9" text-anchor="middle" font-size="11" fill="#0284c7" font-weight="bold">M</text>
+          <text x="22" y="2" font-size="10" font-weight="bold" fill="#0284c7">${this.esc(elem.code || ('MOT-' + (idx+1)))}</text>
+          <text x="22" y="14" font-size="9" fill="#64748b">${elem.motor_s_mva ? ((elem.motor_s_mva * 1000).toFixed(0) + ' kVA') : ''}</text>`;
+      } else if (et === 'carga') {
+        out += `
+          <polygon points="0,-6 -12,12 12,12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"></polygon>
+          <text x="20" y="4" font-size="10" font-weight="bold" fill="#16a34a">${this.esc(elem.code || ('CARGA-' + (idx+1)))}</text>`;
+      }
+
+      const lineColor = this.voltageColor(et === 'transformador' && elem.trafo_voltage_sec_kv > 0 ? elem.trafo_voltage_sec_kv : (elem.voltage_kv || this.studyV));
+      out += `<line x1="0" y1="25" x2="0" y2="42" stroke="${lineColor}" stroke-width="2.5" opacity="0.4"></line>`;
+      out += `</g>`;
+      return out;
     },
 
     init() {
