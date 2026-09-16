@@ -208,7 +208,7 @@
             <tr>
               <th style="width:32px;">#</th><th>Ponto/Tag</th><th>Função ANSI</th><th>Localização</th>
               <th>TC (relação)</th><th>TC Classe</th><th>TP (relação)</th><th>Modelo Relé</th>
-              <th>Pickup prim [A]</th><th>Pickup sec [A]</th><th>TMS / TD</th><th>Curva</th>
+              <th>Pickup prim [A]</th><th>Pickup sec [A]</th><th>TMS / TD</th><th>Curva</th><th>Curva conf.</th>
               <th>t@Icc3&phi; [s]</th><th>t@Icc2&phi; [s]</th><th>t@Icc1&phi; [s]</th>
               <th>Pickup conf. [A]</th><th>TMS conf.</th><th>Notas</th><th></th>
             </tr>
@@ -269,6 +269,15 @@
                 <td class="text-center mono" style="color:#4338ca;" x-text="rel._pickup_sec_a ? rel._pickup_sec_a.toFixed(2) + ' A' : '—'"></td>
                 <td class="text-center mono" style="color:#4338ca;" x-text="rel._tms ? rel._tms.toFixed(3) : '—'"></td>
                 <td class="text-center mono" x-text="rel._curve || '—'"></td>
+                <td>
+                  <select x-model="rel.confirmed_curve_type" style="background:var(--warn-bg); font-weight:700;" title="Confirma/sobrescreve a curva sugerida (rel._curve). Vazio = mantém a curva sugerida automaticamente.">
+                    <option value="">Confirmar…</option>
+                    <option value="NI">NI — Normal Inversa (&alpha;=0,02, &beta;=0,14)</option>
+                    <option value="VI">VI — Muito Inversa (&alpha;=1,0, &beta;=13,5)</option>
+                    <option value="EI">EI — Extremamente Inversa (&alpha;=2,0, &beta;=80,0)</option>
+                    <option value="LI">LI — Longa Inversa (&alpha;=1,0, &beta;=120,0)</option>
+                  </select>
+                </td>
                 <td class="text-center mono" x-text="rel._t3ph != null ? rel._t3ph.toFixed(3) + 's' : '—'"></td>
                 <td class="text-center mono" x-text="rel._t2ph != null ? rel._t2ph.toFixed(3) + 's' : '—'"></td>
                 <td class="text-center mono" x-text="rel._t1ph != null ? rel._t1ph.toFixed(3) + 's' : '—'"></td>
@@ -361,6 +370,7 @@ function equipPage() {
         vt_ratio: r.vt_ratio || '',
         confirmed_pickup_primary_a: r.confirmed_pickup_primary_a || null,
         confirmed_tms: r.confirmed_tms || null,
+        confirmed_curve_type: r.confirmed_curve_type || '',
         notes: r.notes || '',
         _pickup_prim_a: r.pickup_primary_a || null,
         _pickup_sec_a: r.pickup_secondary_a || null,
@@ -376,7 +386,7 @@ function equipPage() {
         tag: '', ansi_function: '51', location_description: '',
         manufacturer: '', model: '',
         ct_ratio: '', ct_class: '', vt_ratio: '',
-        confirmed_pickup_primary_a: null, confirmed_tms: null, notes: '',
+        confirmed_pickup_primary_a: null, confirmed_tms: null, confirmed_curve_type: '', notes: '',
         _pickup_prim_a: null, _pickup_sec_a: null, _tms: null,
         _curve: null, _t3ph: null, _t2ph: null, _t1ph: null,
       });
@@ -461,7 +471,7 @@ function equipPage() {
             tag: r.element_code, ansi_function: r.ansi_function,
             location_description: '', manufacturer: '', model: '',
             ct_ratio: '', ct_class: '', vt_ratio: '',
-            confirmed_pickup_primary_a: null, confirmed_tms: null, notes: '',
+            confirmed_pickup_primary_a: null, confirmed_tms: null, confirmed_curve_type: '', notes: '',
             _pickup_prim_a: r.pickup_primary_ka * 1000,
             _pickup_sec_a: r.pickup_secondary_a,
             _tms: r.tms_suggested,
@@ -514,6 +524,7 @@ function equipPage() {
               curve_type: r._curve,
               confirmed_pickup_primary_a: r.confirmed_pickup_primary_a,
               confirmed_tms: r.confirmed_tms,
+              confirmed_curve_type: r.confirmed_curve_type || null,
               notes: r.notes,
             }))
           }),

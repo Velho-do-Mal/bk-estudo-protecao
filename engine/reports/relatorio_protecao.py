@@ -672,7 +672,7 @@ def _sec5(doc, sc_results, system=None):
         _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)
 
-def _collect_pontos_atencao(ct_results, vt_results, breaker_results):
+def _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results=None):
     """
     Reúne, a partir dos próprios resultados de dimensionamento (que já
     escolhem sempre o valor de série normalizada imediatamente adequado —
@@ -712,6 +712,17 @@ def _collect_pontos_atencao(ct_results, vt_results, breaker_results):
             frase = "; ".join(motivos)
             frase = frase[:1].upper() + frase[1:] if frase else frase
             itens.append(("Disjuntor", getattr(br, "element_code", "---"), frase + "."))
+    for relay in (relay_results or []):
+        if not getattr(relay, "sensitivity_ok", True):
+            razao = getattr(relay, "sensitivity_ratio", None)
+            razao_txt = f" (razão calculada Ik_mín/Ip = {razao:.2f})" if isinstance(razao, (int, float)) else ""
+            itens.append((
+                f"Relé {getattr(relay, 'ansi_function', '')}".strip(), getattr(relay, "element_code", "---"),
+                f"Sensibilidade insuficiente{razao_txt}: a razão entre a corrente mínima de curto-circuito "
+                "(Seção 5.3, c=0,95) e o pickup sugerido ficou abaixo da margem mínima normativa exigida para a "
+                "função de proteção (IEC 60909 §3.2 / Kindermann Cap.3). Revisar o pickup ou a impedância da fonte "
+                "adotada antes da aprovação final do ajuste."
+            ))
     return itens
 
 
@@ -879,15 +890,19 @@ def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None, elements=
                 f"{getattr(relay,'pickup_primary_ka',0.0):.3f} kA",
                 f"{getattr(relay,'tms_suggested',0.0):.3f}",
                 f"{t3:.3f} s" if t3 is not None else "—",
-                _ok_str(sens_ok)))
+                _attn_str(sens_ok)))
         _tbl(doc,["Elem","Barra","Funcao","Curva","Pickup(A sec.)","Pickup(kA prim.)","TMS","t@Ik3(s)","Sensib."],rows_r,
             widths=[Cm(1.3),Cm(1.5),Cm(1.3),Cm(1.3),Cm(2.0),Cm(2.0),Cm(1.4),Cm(1.6),Cm(1.6)],
             hbg=_C_AZUL_MED,note="Funcao ANSI: 51/67=sobrecorrente temporizado (fase/direcional); 50=instantaneo; 51N/67N=terra. "
-                 "Sensib.: verificada com Ik_mínimo (c=0,95 — Seção 5.3), critério IEC 60909 §3.2 / Kindermann Cap.3.")
+                 "Sensib.: verificada com Ik_mínimo (c=0,95 — Seção 5.3), critério IEC 60909 §3.2 / Kindermann Cap.3. "
+                 "\"Sensib.\" = PONTO DE ATENÇÃO quando a razão Ik_mínimo/Ip calculada fica abaixo da margem mínima "
+                 "normativa exigida para a função de proteção — requer revisão do ajuste (não é uma reprovação do "
+                 "estudo; ver motivo na Seção 9.2).")
         _sensib_bad = [r for r in relay_results if not getattr(r,"sensitivity_ok",True)]
         if _sensib_bad:
-            _nota(doc, f"ATENÇÃO: {len(_sensib_bad)} ajuste(s) reprovado(s) no critério de sensibilidade "
-                       "(razão Ik_mín/Ip < mínimo exigido). Revisar pickup ou impedância da fonte antes da aprovação final.")
+            _nota(doc, f"PONTO DE ATENÇÃO: {len(_sensib_bad)} ajuste(s) com sensibilidade insuficiente pelo critério "
+                       "adotado (razão Ik_mín/Ip < mínimo exigido, IEC 60909 §3.2 / Kindermann Cap.3). Revisar pickup "
+                       "ou impedância da fonte antes da aprovação final — ver detalhamento por elemento na Seção 9.2.")
     else: _body(doc,"Nenhum resultado de rele disponivel.",italic=True)
     _h2(doc,"7.3","Analise de Seletividade -- Verificacao REAL da Coordenacao (Retaguarda x Jusante)")
     # ── Correção (coordenação real por graduação de TMS): a versão anterior
@@ -1021,15 +1036,17 @@ def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=
         p.paragraph_format.left_indent=Cm(0.8)
         run=p.add_run(rec); run.font.size=Pt(10); run.font.color.rgb=RGBColor.from_string(_C_CINZA)
     _sp(doc,4)
-    pontos = _collect_pontos_atencao(ct_results, vt_results, breaker_results)
+    pontos = _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results)
     if pontos:
-        _h2(doc,"9.2","Pontos de Atenção do Dimensionamento")
-        _body(doc,"Os equipamentos a seguir foram dimensionados normalmente pela série normalizada aplicável "
-                  "(ver especificação completa na Seção 6) e NÃO configuram reprovação do estudo. Cada item lista "
-                  "o motivo específico pelo qual a exigência calculada extrapola o limite superior da série "
-                  "comercial padronizada, para avaliação do engenheiro responsável quanto à necessidade de solução "
+        _h2(doc,"9.2","Pontos de Atenção do Dimensionamento e da Parametrização")
+        _body(doc,"Os itens a seguir NÃO configuram reprovação do estudo. Os equipamentos (TC/TP/disjuntor) foram "
+                  "dimensionados normalmente pela série normalizada aplicável (ver especificação completa na Seção "
+                  "6), sinalizados aqui apenas quando a exigência calculada extrapola o limite superior da série "
+                  "comercial padronizada — para avaliação do engenheiro responsável quanto à necessidade de solução "
                   "especial (ex.: TC classe PX/Vk dedicado, TC com relação de transformação maior, disjuntor de "
-                  "capacidade especial, dois equipamentos em cascata etc.).")
+                  "capacidade especial, dois equipamentos em cascata etc.). Eventuais ajustes de relé (Seção 7.2) "
+                  "com sensibilidade insuficiente também são listados aqui, com o motivo específico, para revisão "
+                  "do pickup ou da impedância adotada antes da aprovação final.")
         for tipo, cod, motivo in pontos:
             p=doc.add_paragraph(style="List Bullet")
             p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(2)
