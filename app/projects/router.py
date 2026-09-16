@@ -10,7 +10,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -24,15 +24,22 @@ from app.projects.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 router = APIRouter(prefix="/projects", tags=["Projetos"])
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/")
 async def list_projects_page(
     request: Request,
     status_filter: Optional[str] = None,
+    format: Optional[str] = None,
     templates: Jinja2Templates = Depends(get_templates),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Lista projetos do usuário."""
+    """Lista projetos do usuário.
+
+    Aceita ?format=json para retornar a lista em JSON (usado pelo Dashboard
+    e por qualquer outra tela que precise consumir os projetos via fetch,
+    sem duplicar a query em uma rota separada). Sem esse parâmetro, mantém
+    o comportamento original de página HTML.
+    """
     q = select(Project).order_by(Project.updated_at.desc())
     if status_filter:
         try:
@@ -42,6 +49,12 @@ async def list_projects_page(
             pass
     result = await db.execute(q)
     projects = result.scalars().all()
+
+    if format == "json":
+        return JSONResponse(
+            [ProjectRead.model_validate(p).model_dump(mode="json") for p in projects]
+        )
+
     return templates.TemplateResponse(
         request,
         "projects/list.html",
@@ -65,6 +78,29 @@ async def new_project_page(
         request,
         "projects/form.html",
         {"request": request, "project": None, "user": current_user, "title": "Novo Projeto"},
+    )
+
+
+@router.get("/{project_id}/edit", response_class=HTMLResponse)
+async def edit_project_page(
+    request: Request,
+    project_id: uuid.UUID,
+    templates: Jinja2Templates = Depends(get_templates),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Página de edição de projeto — reaproveita o mesmo template de criação
+    (projects/form.html), que já suporta os dois modos (cria/edita) e só
+    precisava desta rota para carregar o projeto existente.
+    """
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    return templates.TemplateResponse(
+        request,
+        "projects/form.html",
+        {"request": request, "project": project, "user": current_user, "title": f"Editar — {project.name}"},
     )
 
 

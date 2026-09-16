@@ -19,7 +19,7 @@
       <div class="kpi-foot">Em elaboração / revisão</div>
     </div>
 
-    <div class="kpi" style="--accent:var(--ok); --accent-bg:var(--ok-bg);">
+    <div class="kpi" style="--accent:var(--ok); --accent-bg:var(--ok-bg);" title="Ainda não implementado nesta versão.">
       <div class="kpi-top">
         <span class="kpi-label">Estudos Calculados</span>
         <div class="kpi-badge">&#10003;</div>
@@ -28,7 +28,7 @@
       <div class="kpi-foot">Com resultado IEC 60909 válido</div>
     </div>
 
-    <div class="kpi" style="--accent:var(--warn); --accent-bg:var(--warn-bg);">
+    <div class="kpi" style="--accent:var(--warn); --accent-bg:var(--warn-bg);" title="Ainda não implementado nesta versão.">
       <div class="kpi-top">
         <span class="kpi-label">Alertas Técnicos</span>
         <div class="kpi-badge">&#9888;</div>
@@ -37,7 +37,7 @@
       <div class="kpi-foot">Requerem verificação do engenheiro</div>
     </div>
 
-    <div class="kpi" style="--accent:var(--bk-700); --accent-bg:var(--bk-100);">
+    <div class="kpi" style="--accent:var(--bk-700); --accent-bg:var(--bk-100);" title="Ainda não implementado nesta versão.">
       <div class="kpi-top">
         <span class="kpi-label">Relatórios Gerados</span>
         <div class="kpi-badge">&#128196;</div>
@@ -140,7 +140,11 @@
 <script>
 function dashboard() {
   return {
-    stats: { projects_active: 0, studies_calculated: 0, warnings_count: 0, reports_count: 0 },
+    // "—" nos 3 indicadores abaixo: ainda não há, no sistema, nenhuma fonte
+    // de dados para "estudo calculado", "alerta técnico" ou "relatório
+    // gerado" (não existe esse rastreamento no banco). Mostrar "0" seria
+    // informar um dado falso; "—" indica honestamente "não disponível".
+    stats: { projects_active: 0, studies_calculated: '—', warnings_count: '—', reports_count: '—' },
     projects: [],
     async init() {
       try {
