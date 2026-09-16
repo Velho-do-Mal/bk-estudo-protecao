@@ -92,6 +92,8 @@ def _nota(doc, texto):
 
 def _ok_str(ok): return "APROVADO" if ok else "REPROVADO"
 
+def _attn_str(ok): return "APROVADO" if ok else "PONTO DE ATENÇÃO"
+
 def _omml_block(doc, omml_xml, label=""):
     try: root = etree.fromstring(omml_xml.encode("utf-8"))
     except Exception:
@@ -416,6 +418,37 @@ def _sec4(doc, system, elements):
             str(getattr(e,"trafo_connection","---"))) for e in trafos]
         _tbl(doc,["Cod","Barras","V AT/BT (kV)","Potencia","uk (%)","Ligacao"],rows_t,
             widths=[Cm(1.8),Cm(3.2),Cm(3.5),Cm(2.5),Cm(2.0),Cm(3.0)])
+    _h2(doc,"4.3","Diagrama Unifilar (Esquemático)")
+    _body(doc,"Representação esquemática da topologia cadastrada, gerada automaticamente a partir dos elementos da Secao 4.2, na mesma sequencia e simbologia exibidas na aba \"Diagrama Unifilar\" do software.")
+    diag_b64 = None
+    try:
+        from engine.charts.diagrama_unifilar import generate_diagrama_unifilar_png
+        v_base = getattr(system,"v_base_kv",13.8) or 13.8
+        scc_mva = getattr(system,"short_circuit_mva_source",0.0) or 0.0
+        zr = getattr(system,"z_source_r_ohm",0.0) or 0.0
+        zx = getattr(system,"z_source_x_ohm",0.0) or 0.0
+        diag_b64 = generate_diagrama_unifilar_png(elements, v_base_kv=v_base, scc_mva=scc_mva, zr_ohm=zr, zx_ohm=zx)
+    except Exception as exc:
+        _body(doc,f"[Erro ao gerar diagrama unifilar: {exc}]",italic=True)
+    if diag_b64:
+        import base64
+        try:
+            img_bytes=base64.b64decode(diag_b64)
+            doc.add_picture(io.BytesIO(img_bytes),width=Cm(14.0))
+            last=doc.paragraphs[-1]; last.alignment=WD_ALIGN_PARAGRAPH.CENTER
+            pl=doc.add_paragraph(); pl.alignment=WD_ALIGN_PARAGRAPH.CENTER
+            rl=pl.add_run("Figura 0 -- Diagrama Unifilar (esquemático, gerado automaticamente)")
+            rl.italic=True; rl.font.size=Pt(9); rl.font.color.rgb=RGBColor.from_string(_C_CINZA)
+        except Exception as exc:
+            _body(doc,f"[Erro ao inserir diagrama unifilar: {exc}]",italic=True)
+    elif elements:
+        _body(doc,"Diagrama unifilar nao pode ser gerado (biblioteca de geracao de imagem indisponivel no servidor).",italic=True)
+    else:
+        _body(doc,"Nenhum elemento cadastrado para gerar o diagrama unifilar.",italic=True)
+    _nota(doc,"Este diagrama unifilar é ESQUEMÁTICO e gerado automaticamente a partir dos dados cadastrados. "
+              "Não substitui o projeto elétrico executivo. O diagrama oficial deve ser elaborado em CAD "
+              "(AutoCAD, SEE/EE, etc.) com os símbolos normativos completos (ABNT NBR 5444 / IEC 60617) e "
+              "aprovado pelo engenheiro responsável (CREA).")
     _sp(doc,4)
 
 def _build_topology_for_report(elements):
@@ -639,6 +672,49 @@ def _sec5(doc, sc_results, system=None):
         _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)
 
+def _collect_pontos_atencao(ct_results, vt_results, breaker_results):
+    """
+    Reúne, a partir dos próprios resultados de dimensionamento (que já
+    escolhem sempre o valor de série normalizada imediatamente adequado —
+    engine/sizing/ct_sizing.py, vt_sizing.py, breaker_sizing.py), os itens
+    em que a exigência calculada excede o limite superior da série
+    normalizada aplicável. Isso NUNCA significa que o equipamento indicado
+    esteja "reprovado" (nenhum equipamento foi informado pelo usuário para
+    ser validado) — é um alerta de engenharia sobre o próprio limite da
+    série comercial, com o motivo específico extraído dos avisos já
+    gerados pelo motor de dimensionamento.
+    """
+    itens = []
+    for ct in (ct_results or []):
+        if not getattr(ct, "saturation_check_ok", True):
+            motivo = next((w for w in (getattr(ct, "warnings", []) or [])
+                           if "ALF" in w or "satura" in w.lower()), None)
+            itens.append((
+                "TC", getattr(ct, "element_code", "---"),
+                motivo or "ALF exigido pela corrente de falta máxima excede a série normalizada de TCs "
+                          "(ABNT NBR IEC 61869-2)."
+            ))
+    for vt in (vt_results or []):
+        if not getattr(vt, "burden_check_ok", True):
+            itens.append((
+                "TP", getattr(vt, "element_code", "---"),
+                "Burden (potência de carga secundária) calculado excede o limite superior da série normalizada "
+                "de potências de TP (ABNT NBR IEC 61869-3)."
+            ))
+    for br in (breaker_results or []):
+        v_ok = getattr(br, "voltage_ok", True); c_ok = getattr(br, "current_ok", True)
+        b_ok = getattr(br, "breaking_ok", True)
+        if not (v_ok and c_ok and b_ok):
+            motivos = []
+            if not v_ok: motivos.append("a tensão nominal exigida excede a série normalizada de tensões (IEC 62271-1)")
+            if not c_ok: motivos.append("a corrente de carga exigida excede a série normalizada de correntes nominais (IEC 62271-100)")
+            if not b_ok: motivos.append("a corrente de curto-circuito calculada excede o limite superior da série normalizada de correntes de ruptura, 80 kA (IEC 62271-100)")
+            frase = "; ".join(motivos)
+            frase = frase[:1].upper() + frase[1:] if frase else frase
+            itens.append(("Disjuntor", getattr(br, "element_code", "---"), frase + "."))
+    return itens
+
+
 def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
     # ── Correção (relatório "Z zeradas") ────────────────────────────────────
     # Os objetos CTSizingOutput/VTSizingOutput/BreakerSizingOutput (schemas
@@ -679,10 +755,15 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
             ok=getattr(ct,"saturation_check_ok",alf_nom>=alf_calc)
             rows_ct.append((getattr(ct,"element_code","---"),bus,
                 f"{in1:.0f} / {getattr(ct,'secondary_current_a',5.0):.0f} A",f"{icc3:.3f} kA",
-                f"{alf_calc:.1f}",f"{alf_nom:.0f}",classe,_ok_str(ok)))
+                f"{alf_calc:.1f}",f"{alf_nom:.0f}",classe,_attn_str(ok)))
         _tbl(doc,["Elem","Barra","Relacao(A)","Ik3(kA)","ALF calc","ALF nom","Classe","Result."],rows_ct,
             widths=[Cm(1.4),Cm(1.8),Cm(2.2),Cm(2.0),Cm(1.8),Cm(1.8),Cm(2.0),Cm(3.0)],
-            note="TC aprovado se ALF_nominal >= ALF_calc (saturation_check_ok).")
+            note="O TC indicado na coluna \"Designação ABNT\" (não mostrada nesta síntese; ver especificação completa "
+                 "no sistema) é sempre dimensionado pela série normalizada ABNT NBR IEC 61869-2. \"Result.\" = PONTO DE "
+                 "ATENÇÃO quando o ALF exigido pela corrente de falta máxima excede o limite superior da série normalizada "
+                 "de ALF (30) para núcleos classe 5P/10P — não indica reprovação do equipamento especificado, apenas a "
+                 "necessidade de avaliação adicional (ver motivo detalhado na Seção 9.2). Para núcleos classe PX (proteção "
+                 "diferencial 87T), o critério de saturação é a tensão de joelho Vk (não o ALF) — ver Seção 6.1, linha 4.")
     else: _body(doc,"Resultados de TC nao disponiveis.",italic=True)
     _h2(doc,"6.2","Transformadores de Potencial (TP) -- ABNT NBR IEC 61869-3")
     _tbl(doc,["Criterio","Formula / Regra","Norma"],[
@@ -699,10 +780,12 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
             rows_vt.append((getattr(vt,"element_code","---"),bus,
                 f"{getattr(vt,'vp_v',0.0):.0f} V",f"{getattr(vt,'vs_v',0.0):.1f} V",
                 getattr(vt,"accuracy_class","3P"),f"{getattr(vt,'burden_total_va',0.0):.1f}",
-                f"{getattr(vt,'ktf_value',1.9):.1f}",_ok_str(ok)))
+                f"{getattr(vt,'ktf_value',1.9):.1f}",_attn_str(ok)))
         _tbl(doc,["Elem","Barra","V prim","V sec","Classe","Burden(VA)","Ktf","Result."],rows_vt,
             widths=[Cm(1.3),Cm(1.6),Cm(2.2),Cm(1.8),Cm(1.6),Cm(2.2),Cm(1.3),Cm(2.9)],
-            note="Ktf conforme regime de aterramento do neutro informado (ver Seção 3/Fonte).")
+            note="Ktf conforme regime de aterramento do neutro informado (ver Seção 3/Fonte). \"Result.\" = PONTO DE "
+                 "ATENÇÃO quando a potência de burden calculada excede o limite superior da série normalizada de TP "
+                 "(ABNT NBR IEC 61869-3) — não indica reprovação do equipamento especificado (ver Seção 9.2).")
     else: _body(doc,"Resultados de TP nao disponiveis.",italic=True)
     _h2(doc,"6.3","Disjuntores -- IEC 62271-100")
     _tbl(doc,["Parametro","Criterio","Norma"],[
@@ -718,10 +801,13 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
             ima=getattr(br,"making_current_ka",0.0) or 0.0
             ok=getattr(br,"breaking_ok",True) and getattr(br,"voltage_ok",True) and getattr(br,"current_ok",True)
             rows_br.append((getattr(br,"element_code","---"),bus,
-                f"{icc3:.3f}",f"{ip:.3f}",f"{icu:.1f}",f"{ima:.1f}",_ok_str(ok)))
+                f"{icc3:.3f}",f"{ip:.3f}",f"{icu:.1f}",f"{ima:.1f}",_attn_str(ok)))
         _tbl(doc,["Elem","Barra","Ik3(kA)","ip(kA)","I_cu(kA)","I_ma(kA)","Result."],rows_br,
             widths=[Cm(1.5),Cm(2.0),Cm(2.2),Cm(2.0),Cm(2.2),Cm(2.2),Cm(3.9)],
-            note="Aprovado: voltage_ok E current_ok E breaking_ok (I_cu >= Ik3 E I_ma >= ip).")
+            note="O disjuntor indicado é sempre dimensionado pela série normalizada IEC 62271-100 imediatamente "
+                 "superior à exigência calculada. \"Result.\" = PONTO DE ATENÇÃO quando a tensão, corrente nominal ou "
+                 "corrente de ruptura exigida excede o limite superior da série normalizada disponível — não indica "
+                 "reprovação do equipamento especificado (ver motivo detalhado na Seção 9.2).")
     else: _body(doc,"Resultados de disjuntores nao disponiveis.",italic=True)
     _h2(doc,"6.4","Sintese do Dimensionamento por Barra")
     if sc_results:
@@ -910,7 +996,7 @@ def _sec8(doc, sc_results, relay_results, system=None):
     _nota(doc,"Em caso de revisao do projeto, todos os calculos devem ser refeitos e o presente relatorio reeditado com nova revisao e assinatura.")
     _sp(doc,4)
 
-def _sec9(doc, sc_results=None, relay_results=None):
+def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=None, breaker_results=None):
     _h1(doc,"9","CONCLUSAO E RECOMENDACOES")
     if sc_results:
         icc3_vals=[getattr(r,"icc_3ph_ka",0.0) or 0.0 for r in sc_results]
@@ -935,6 +1021,22 @@ def _sec9(doc, sc_results=None, relay_results=None):
         p.paragraph_format.left_indent=Cm(0.8)
         run=p.add_run(rec); run.font.size=Pt(10); run.font.color.rgb=RGBColor.from_string(_C_CINZA)
     _sp(doc,4)
+    pontos = _collect_pontos_atencao(ct_results, vt_results, breaker_results)
+    if pontos:
+        _h2(doc,"9.2","Pontos de Atenção do Dimensionamento")
+        _body(doc,"Os equipamentos a seguir foram dimensionados normalmente pela série normalizada aplicável "
+                  "(ver especificação completa na Seção 6) e NÃO configuram reprovação do estudo. Cada item lista "
+                  "o motivo específico pelo qual a exigência calculada extrapola o limite superior da série "
+                  "comercial padronizada, para avaliação do engenheiro responsável quanto à necessidade de solução "
+                  "especial (ex.: TC classe PX/Vk dedicado, TC com relação de transformação maior, disjuntor de "
+                  "capacidade especial, dois equipamentos em cascata etc.).")
+        for tipo, cod, motivo in pontos:
+            p=doc.add_paragraph(style="List Bullet")
+            p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(2)
+            p.paragraph_format.left_indent=Cm(0.8)
+            r1=p.add_run(f"{tipo} {cod}: "); r1.bold=True; r1.font.size=Pt(10); r1.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+            r2=p.add_run(motivo); r2.font.size=Pt(10); r2.font.color.rgb=RGBColor.from_string(_C_CINZA)
+        _sp(doc,4)
 
 def _sec10(doc, info):
     _h1(doc,"10","RESPONSAVEL TECNICO")
@@ -988,7 +1090,7 @@ def gerar_relatorio_protecao(
     _sec6(doc,ct_results or [],vt_results or [],breaker_results or [],sc_results or [])
     _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [],elements or [])
     _sec8(doc,sc_results or [],relay_results or [],system)
-    _sec9(doc,sc_results or [],relay_results or [])
+    _sec9(doc,sc_results or [],relay_results or [],ct_results or [],vt_results or [],breaker_results or [])
     _sec10(doc,study_info)
     buf=io.BytesIO(); doc.save(buf); buf.seek(0)
     return buf

@@ -225,27 +225,48 @@ def size_ct(
     res.burden_check_ok = sn_tc >= burden_total_va
 
     # ── 3. Fator de sobre-corrente de exatidão (ALF) ──────────────────────────
+    # NOTA: o critério ALF (série normalizada 5/10/15/20/30 — núcleos classe
+    # 5P/10P) só se aplica a núcleos de PROTEÇÃO CONVENCIONAL. Núcleos classe
+    # PX (proteção diferencial 87T) NÃO são especificados por ALF — são
+    # especificados pela tensão de joelho Vk (ver bloco 4 abaixo, ABNT NBR
+    # IEC 61869-2 Seção 6.2). Por isso a verificação de saturação (ALF vs.
+    # série normalizada) só é aplicada aqui para o caso não-PX; para PX, o
+    # ALF ainda é calculado/exibido a título informativo (ele entra na
+    # fórmula de Vk), mas quem determina "saturação/aprovação" é o Vk.
+    is_px = for_differential_87t or purpose == "diferencial"
     icc_max_a = icc_max_ka * 1000.0
     alf_required = (icc_max_a / ip_nominal) if ip_nominal > 0 else 20.0
     res.alf_required = alf_required
     alf = _next_std_alf(alf_required)
     res.alf_adopted = alf
-    res.saturation_check_ok = alf >= alf_required
 
-    if not res.saturation_check_ok:
-        res.warnings.append(
-            f"ALERTA — ALF requerido ({alf_required:.1f}) > série normalizada máxima ({alf}). "
-            "TC pode saturar em curto. Considerar: (a) Ip maior, "
-            "(b) TC classe PX com Vk especificado, (c) dois TCs em cascata."
-        )
+    if not is_px:
+        res.saturation_check_ok = alf >= alf_required
+        if not res.saturation_check_ok:
+            res.warnings.append(
+                f"PONTO DE ATENÇÃO — ALF requerido ({alf_required:.1f}) > série normalizada máxima ({alf}). "
+                "Com um TC de núcleo convencional (classe 5P/10P) padronizado, a exatidão de proteção não é "
+                "garantida em toda a faixa até a corrente de falta máxima. Alternativas de engenharia: "
+                "(a) adotar Ip nominal maior (reduz o ALF exigido), "
+                "(b) usar núcleo classe PX com Vk especificado (dimensionado pela tensão de joelho, não pelo ALF — "
+                "ver Seção 6.1), (c) dois TCs em cascata."
+            )
+        else:
+            res.assumptions.append(
+                f"ALF: requerido = Icc / Ip = {icc_max_a:.0f} / {ip_nominal:.0f} = "
+                f"{alf_required:.1f} → adotado ALF = {alf} (série ABNT NBR IEC 61869-2)."
+            )
     else:
+        # Para PX, o "ALF" calculado acima entra na fórmula de Vk (ver bloco 4);
+        # não é, por si só, critério de aprovação/reprovação do núcleo PX.
         res.assumptions.append(
-            f"ALF: requerido = Icc / Ip = {icc_max_a:.0f} / {ip_nominal:.0f} = "
-            f"{alf_required:.1f} → adotado ALF = {alf} (série ABNT NBR IEC 61869-2)."
+            f"ALF de referência para o cálculo de Vk = Icc / Ip = {icc_max_a:.0f} / {ip_nominal:.0f} = "
+            f"{alf_required:.1f} (usado apenas como fator de multiplicação na fórmula de Vk abaixo — "
+            "núcleo classe PX não é especificado por ALF/série normalizada)."
         )
 
     # ── 4. Classe de exatidão e tensão de joelho ─────────────────────────────
-    if for_differential_87t or purpose == "diferencial":
+    if is_px:
         res.accuracy_class = "PX"
         rct = _estimate_rct(ip_nominal, secondary_current_a)
         res.rct_ohm = rct
@@ -253,12 +274,18 @@ def size_ct(
         vk_required = alf * (rct + rb) * secondary_current_a
         res.vk_required_v = vk_required
         res.vk_adopted_v = math.ceil(vk_required * 1.2 / 10) * 10  # arredonda para cima a 10V
+        # Critério de saturação para classe PX: Vk adotado (com margem de projeto de
+        # 20%) sempre atende ao Vk requerido — não há "série normalizada" de Vk a
+        # extrapolar, pois Vk é uma especificação contínua feita sob encomenda ao
+        # fabricante para cada projeto (ABNT NBR IEC 61869-2 Seção 6.2).
+        res.saturation_check_ok = res.vk_adopted_v >= vk_required
         res.assumptions.append(
             f"Classe PX (proteção diferencial 87T): "
             f"Vk ≥ ALF × (Rct + Rb) × Is = "
             f"{alf} × ({rct:.3f} + {rb:.3f}) × {secondary_current_a:.0f} = "
             f"{vk_required:.1f} V → adotado Vk = {res.vk_adopted_v:.0f} V (margem 20%). "
             f"[HIPÓTESE: Rct estimado = {rct:.2f} Ω — verificar com ensaio de fábrica]. "
+            "Critério de saturação da classe PX é a tensão de joelho Vk (não o ALF de núcleos 5P/10P). "
             "Ref.: ABNT NBR IEC 61869-2 Seção 6.2."
         )
     elif purpose == "medicao":
