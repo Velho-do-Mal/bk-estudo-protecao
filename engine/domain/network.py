@@ -147,6 +147,18 @@ class NetworkElement:
     trafo_connection: TrafoConnection = TrafoConnection.YgYg
     trafo_neutral_z_ohm: float = 0.0
     trafo_voltage_sec_kv: float = 0.0
+    # Correção (auditoria 2026-09, achado 2.7): aterramento do neutro do
+    # trafo — "solido" | "resistencia" — análogo a gen_grounding. Quando
+    # "resistencia", trafo_neutral_z_ohm (Rn) entra em Z0 = Z0_calc + 3×Rn
+    # (engine/short_circuit/iec60909.py::_seq_trafo). Default "solido"
+    # preserva o comportamento anterior a esta correção.
+    trafo_grounding: str = "solido"
+    # Correção (achado 2.2 CRÍTICO): antes, TODO transformador com
+    # trafo_kva>0 era tratado como tendo proteção diferencial 87T (afeta
+    # classificação do núcleo do TC — PX/Vk vs. 5P-10P/ALF, ABNT NBR IEC
+    # 61869-2). Default True preserva o comportamento anterior; o
+    # engenheiro desmarca na UI quando o transformador não terá 87T.
+    trafo_87t_enabled: bool = True
 
     # Gerador subtransiente
     gen_s_sub_mva: float = 0.0

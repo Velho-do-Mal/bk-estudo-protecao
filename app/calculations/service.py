@@ -124,6 +124,12 @@ class CalculationService:
                 icc_peak_ka=raw.icc_peak_ka,
                 kappa_factor=raw.kappa_factor,
                 icc_3ph_lv_ka=raw.icc_3ph_lv_ka,
+                # Correção (achado 2.1): corrente/pico/κ em bus_from — ver
+                # engine/short_circuit/iec60909.py::CalculatorResult e
+                # app/calculations/schemas.py::ElementResult.
+                icc_3ph_ka_bus_from=getattr(raw, "icc_3ph_ka_bus_from", raw.icc_3ph_ka),
+                icc_peak_ka_bus_from=getattr(raw, "icc_peak_ka_bus_from", raw.icc_peak_ka),
+                kappa_factor_bus_from=getattr(raw, "kappa_factor_bus_from", raw.kappa_factor),
                 icc_3ph_min_ka=getattr(raw, "icc_3ph_min_ka", 0.0),
                 icc_2ph_min_ka=getattr(raw, "icc_2ph_min_ka", 0.0),
                 icc_1ph_min_ka=getattr(raw, "icc_1ph_min_ka", None),
@@ -320,6 +326,8 @@ def _build_network_element(e, system: SystemBase) -> NetworkElement:
         trafo_z0_percent=e.trafo_z0_percent,
         trafo_connection=tconn,
         trafo_neutral_z_ohm=e.trafo_neutral_z_ohm,
+        trafo_grounding=getattr(e, "trafo_grounding", "solido") or "solido",
+        trafo_87t_enabled=getattr(e, "trafo_87t_enabled", True),
         trafo_voltage_sec_kv=e.trafo_voltage_sec_kv,
         gen_s_sub_mva=e.gen_s_sub_mva,
         gen_xpp_percent=e.gen_xpp_percent,
@@ -680,7 +688,27 @@ def _suggest_all_relay_settings(
                     relay_results.append(_make_relay_output(rs21, icc3, curve="—"))
 
                 # 87T — diferencial de transformador
-                if elem.element_type == ElementType.transformador and elem.trafo_kva > 0:
+                # Correção (auditoria 2026-09, achado 2.2 CRÍTICO): antes,
+                # QUALQUER transformador com trafo_kva>0 recebia sugestão de
+                # 87T, independente de o engenheiro realmente ter previsto
+                # proteção diferencial para aquele ponto (comum apenas em
+                # transformadores de maior porte — pequenos trafos de
+                # distribuição usam tipicamente 50/51 + fusível). Isso, por
+                # si só, já era uma simplificação; tornou-se um problema
+                # REAL a partir da correção do dimensionamento de TC (classe
+                # PX/Vk vs. 5P/10P por ALF, ABNT NBR IEC 61869-2): o TC de
+                # QUALQUER transformador passou a ser sempre classificado
+                # como PX (diferencial), mesmo quando o engenheiro nunca
+                # pretendeu usar 87T naquele ponto — ver for_differential_87t
+                # abaixo, em _size_all_equipment(). Agora depende do campo
+                # explícito trafo_87t_enabled (default True — preserva o
+                # comportamento anterior; o engenheiro desmarca quando o
+                # transformador realmente não terá proteção diferencial).
+                if (
+                    elem.element_type == ElementType.transformador
+                    and elem.trafo_kva > 0
+                    and getattr(elem, "trafo_87t_enabled", True)
+                ):
                     rs87t = suggest_relay_settings(
                         element_code=elem.code, ansi_function="87T",
                         icc_3ph_ka=icc3, icc_2ph_ka=icc2, icc_1ph_ka=icc1,
@@ -824,9 +852,20 @@ def _size_all_equipment(
                 )
                 continue
 
-            icc3 = raw.icc_3ph_ka
-            icc_peak = raw.icc_peak_ka
-            kappa = raw.kappa_factor
+            # Correção (auditoria 2026-09, achado 2.1 CRÍTICO): dimensionamento
+            # de TC/TP/disjuntor deve usar a corrente de curto disponível na
+            # barra de ORIGEM (bus_from) deste elemento — pior caso de
+            # corrente passante para o equipamento, uma falta franca em seus
+            # próprios terminais, SEM a atenuação da impedância própria do
+            # trecho/trafo que este elemento representa. Antes, usava-se
+            # raw.icc_3ph_ka/icc_peak_ka/kappa_factor, que são calculados
+            # APÓS somar essa impedância própria (corretos para ALCANCE/
+            # COORDENAÇÃO de relé, não para dimensionamento de equipamento) —
+            # isso SUBESTIMAVA a corrente de dimensionamento. Ver
+            # engine/short_circuit/iec60909.py::CalculatorResult.
+            icc3 = getattr(raw, "icc_3ph_ka_bus_from", 0.0) or raw.icc_3ph_ka
+            icc_peak = getattr(raw, "icc_peak_ka_bus_from", 0.0) or raw.icc_peak_ka
+            kappa = getattr(raw, "kappa_factor_bus_from", 0.0) or raw.kappa_factor
             v_kv = elem.voltage_kv if elem.voltage_kv > 0 else system.v_base_kv
 
             # Corrente de carga estimada
@@ -858,7 +897,16 @@ def _size_all_equipment(
                     system_voltage_kv=v_kv,
                     purpose="protecao",
                     secondary_current_a=5.0,
-                    for_differential_87t=(elem.element_type == ElementType.transformador),
+                    # Correção (achado 2.2 CRÍTICO) — ver comentário completo
+                    # junto à sugestão da função 87T acima: classe do núcleo
+                    # do TC (PX/diferencial vs. 5P/10P/ALF convencional)
+                    # agora reflete se o engenheiro realmente configurou
+                    # proteção diferencial para este transformador, não
+                    # apenas o tipo do elemento.
+                    for_differential_87t=(
+                        elem.element_type == ElementType.transformador
+                        and getattr(elem, "trafo_87t_enabled", True)
+                    ),
                 )
                 ct_results.append(CTSizingOutput(
                     element_code=ct_raw.element_code,

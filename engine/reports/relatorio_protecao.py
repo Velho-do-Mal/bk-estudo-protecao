@@ -410,6 +410,24 @@ def _sec4(doc, system, elements):
             f"{getattr(e,'r0_ohm_km',0) or '---'}",f"{getattr(e,'x0_ohm_km',0) or '---'}") for e in linhas]
         _tbl(doc,["Cod","Tipo","Barras","V(kV)","L(km)","R1","X1","R0","X0"],rows_l,
             widths=[Cm(1.5),Cm(1.8),Cm(3.0),Cm(1.4),Cm(1.4),Cm(1.8),Cm(1.8),Cm(1.6),Cm(1.7)],note="R1,X1,R0,X0 em Ohm/km.")
+        # ── Correção (auditoria 2026-09, achado 2.6) ── Declara explicitamente
+        # (no documento entregue, não apenas em comentário de código) as
+        # premissas de geometria e resistividade do solo por trás dos valores
+        # de R0/X0 do catálogo de condutores e da estimativa de Carson usada
+        # quando R0/X0 são deixados em branco — ver docstring completa em
+        # engine/cables/cable_database.py e engine/short_circuit/
+        # iec60909.py::_seq_linha().
+        _nota(doc, "PREMISSAS de R0/X0 (sequência zero) desta seção — quando o valor não é informado manualmente: "
+              "(1) Condutores nus do catálogo interno (CA/CAA/CAL/Cu nu): X1 obtido por regressão log-linear sobre "
+              "catálogo de fabricante (não é medição direta de cada bitola); Z0 estimado por Carson (1926) com "
+              "resistividade do solo ρ = 100 Ω·m e espaçamento médio entre fases de 1,2 m (MT rural) a 2,0 m (AT), "
+              "geometria típica de distribuição 13,8–34,5 kV — NÃO reflete necessariamente o espaçamento real da "
+              "linha do projeto. (2) Cabos isolados do catálogo (XLPE/PVC): Z0 estimado por R0≈3,5×R1 (retorno pela "
+              "blindagem metálica), sem uso de ρ_solo. (3) Quando nenhum dado de catálogo é usado (R0/X0 em branco "
+              "e sem \"Condutor\" reconhecido): estimativa conservadora simplificada (R0≈3,5×R1; X0≈3×X1 aérea ou "
+              "3,5×X1 cabo) — ver Seção 5.1. Para qualquer projeto onde a geometria real (espaçamento de fases, "
+              "resistividade do solo medida) divergir significativamente destas premissas, o engenheiro responsável "
+              "deve inserir R0/X0 reais do fabricante/estudo geotécnico em vez de usar a estimativa automática.")
     if trafos:
         _body(doc,"Transformadores:",bold=True,size=10)
         rows_t=[(getattr(e,"code","---"),f"{getattr(e,'bus_from','?')} -> {getattr(e,'bus_to','?')}",
@@ -672,7 +690,100 @@ def _sec5(doc, sc_results, system=None):
         _tbl(doc,["Grandeza / Equacao","Substituicao e Resultado"],mem,widths=[Cm(6.5),Cm(9.5)],hbg=_C_AZUL_LIG)
     _sp(doc,4)
 
-def _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results=None):
+def _compute_relay_divergences(relay_results, relay_confirmed):
+    """
+    Correção (auditoria 2026-09, achado 2.5): StudyRelay.confirmed_pickup_
+    primary_a / confirmed_tms / confirmed_curve_type são valores que o
+    engenheiro pode digitar na tela de Equipamentos para SOBRESCREVER o
+    ajuste sugerido pelo motor — mas eram apenas persistidos no banco,
+    nunca comparados contra o ajuste sugerido nem exibidos neste relatório.
+    Isso significa que uma sobrescrita do engenheiro divergente do ajuste
+    sugerido passava DESPERCEBIDA: nem o cálculo de seletividade/
+    coordenograma (Seções 7.3/7.4, que usam sempre o valor SUGERIDO — essa
+    é uma decisão de projeto separada, não alterada por esta correção) nem
+    o relatório entregue ao cliente indicavam a diferença.
+
+    Esta função NÃO recalcula seletividade/coordenograma com os valores
+    confirmados — apenas identifica e relata a divergência, para que o
+    engenheiro responsável avalie manualmente se a coordenação continua
+    válida com o valor que ele efetivamente vai gravar no relé físico.
+
+    relay_confirmed: lista de objetos/dicts com tag (=element_code),
+    ansi_function, confirmed_pickup_primary_a, confirmed_tms,
+    confirmed_curve_type (StudyRelay ORM ou equivalente serializado).
+
+    Retorna lista de dicts: {element_code, ansi_function, campo,
+    sugerido, confirmado, motivo}.
+    """
+    def _g(obj, name, default=None):
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    if not relay_confirmed:
+        return []
+
+    suggested_by_key: dict = {}
+    for relay in (relay_results or []):
+        key = (getattr(relay, "element_code", None), getattr(relay, "ansi_function", None))
+        suggested_by_key[key] = relay
+
+    divergencias = []
+    for conf in relay_confirmed:
+        tag = _g(conf, "tag")
+        func = _g(conf, "ansi_function")
+        suggested = suggested_by_key.get((tag, func))
+        if suggested is None:
+            continue
+
+        c_pickup = _g(conf, "confirmed_pickup_primary_a")
+        if c_pickup is not None and c_pickup > 0:
+            s_pickup_ka = getattr(suggested, "pickup_primary_ka", 0.0) or 0.0
+            s_pickup_a = s_pickup_ka * 1000.0
+            if s_pickup_a > 0:
+                diff_pct = abs(c_pickup - s_pickup_a) / s_pickup_a * 100.0
+                if diff_pct > 5.0:
+                    divergencias.append({
+                        "element_code": tag, "ansi_function": func, "campo": "Pickup primário",
+                        "sugerido": f"{s_pickup_a:.1f} A", "confirmado": f"{c_pickup:.1f} A",
+                        "motivo": f"Valor confirmado pelo engenheiro diverge {diff_pct:.0f}% do sugerido pelo motor "
+                                  "de cálculo. A coordenação/seletividade (Seções 7.3/7.4) foi verificada com o "
+                                  "valor SUGERIDO — reavaliar manualmente com o valor confirmado antes de gravar "
+                                  "no relé físico.",
+                    })
+
+        c_tms = _g(conf, "confirmed_tms")
+        if c_tms is not None and c_tms > 0:
+            s_tms = getattr(suggested, "tms_suggested", 0.0) or 0.0
+            if s_tms > 0:
+                diff_pct = abs(c_tms - s_tms) / s_tms * 100.0
+                if diff_pct > 5.0:
+                    divergencias.append({
+                        "element_code": tag, "ansi_function": func, "campo": "TMS",
+                        "sugerido": f"{s_tms:.3f}", "confirmado": f"{c_tms:.3f}",
+                        "motivo": f"TMS confirmado pelo engenheiro diverge {diff_pct:.0f}% do sugerido pelo motor "
+                                  "de cálculo. A coordenação/seletividade (Seções 7.3/7.4) foi verificada com o "
+                                  "valor SUGERIDO — reavaliar manualmente com o valor confirmado antes de gravar "
+                                  "no relé físico.",
+                    })
+
+        c_curve = _g(conf, "confirmed_curve_type")
+        s_curve = getattr(suggested, "curve_type", "") or ""
+        if c_curve and s_curve and c_curve.strip().upper() != s_curve.strip().upper():
+            divergencias.append({
+                "element_code": tag, "ansi_function": func, "campo": "Curva",
+                "sugerido": s_curve, "confirmado": c_curve,
+                "motivo": "Curva de atuação confirmada pelo engenheiro é diferente da sugerida pelo motor de "
+                          "cálculo. O coordenograma (Seção 7.4) foi gerado com a curva SUGERIDA — reavaliar "
+                          "manualmente a coordenação com a curva confirmada antes de gravar no relé físico.",
+            })
+
+    return divergencias
+
+
+def _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results=None, relay_divergences=None):
     """
     Reúne, a partir dos próprios resultados de dimensionamento (que já
     escolhem sempre o valor de série normalizada imediatamente adequado —
@@ -723,6 +834,11 @@ def _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_resul
                 "função de proteção (IEC 60909 §3.2 / Kindermann Cap.3). Revisar o pickup ou a impedância da fonte "
                 "adotada antes da aprovação final do ajuste."
             ))
+    for div in (relay_divergences or []):
+        itens.append((
+            f"Relé {div['ansi_function']} ({div['campo']})", div["element_code"],
+            f"Sugerido: {div['sugerido']} — Confirmado pelo engenheiro: {div['confirmado']}. {div['motivo']}",
+        ))
     return itens
 
 
@@ -743,7 +859,15 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
         if r is None:
             return "---", 0.0, 0.0
         bus = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
-        return bus, (getattr(r,"icc_3ph_ka",0.0) or 0.0), (getattr(r,"icc_peak_ka",0.0) or 0.0)
+        # Correção (auditoria 2026-09, achado 2.1 CRÍTICO): TC/TP/disjuntor
+        # são dimensionados (app/calculations/service.py::_size_all_equipment)
+        # pela corrente de curto disponível em bus_from (pior caso de
+        # corrente passante para o equipamento) — exibir aqui a MESMA
+        # corrente usada no dimensionamento, não a de bus_to (alcance de
+        # relé/coordenação), para não divergir do que foi de fato calculado.
+        icc3 = getattr(r,"icc_3ph_ka_bus_from",0.0) or getattr(r,"icc_3ph_ka",0.0) or 0.0
+        ip = getattr(r,"icc_peak_ka_bus_from",0.0) or getattr(r,"icc_peak_ka",0.0) or 0.0
+        return bus, icc3, ip
 
     _h1(doc,"6","DIMENSIONAMENTO DE EQUIPAMENTOS DE PROTECAO E MEDICAO")
     _body(doc,"O dimensionamento e realizado com base nas correntes calculadas na Secao 5, observando os criterios normativos de cada equipamento.")
@@ -836,7 +960,11 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
         for r in sc_results:
             if not getattr(r,"has_protection",True):
                 continue
-            icc3=getattr(r,"icc_3ph_ka",0.0) or 0.0; ip=getattr(r,"icc_peak_ka",0.0) or 0.0
+            # Correção (achado 2.1): mesma corrente de dimensionamento
+            # (bus_from) usada em _size_all_equipment — ver _bus_icc3_ip()
+            # acima nesta mesma seção.
+            icc3=getattr(r,"icc_3ph_ka_bus_from",0.0) or getattr(r,"icc_3ph_ka",0.0) or 0.0
+            ip=getattr(r,"icc_peak_ka_bus_from",0.0) or getattr(r,"icc_peak_ka",0.0) or 0.0
             bus_disp = getattr(r,"bus_to","") or getattr(r,"bus_from","") or "---"
             br_min=next((v for v in br_series if v>=icc3),icc3)
             rows_syn.append((getattr(r,"element_code","---"),bus_disp,
@@ -854,7 +982,7 @@ def _sec6(doc, ct_results, vt_results, breaker_results, sc_results=None):
                        f"considerados no cálculo de curto-circuito da Seção 5): {codigos}.")
     _sp(doc,4)
 
-def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None, elements=None):
+def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None, elements=None, relay_confirmed=None):
     # ── Correção (relatório "Z zeradas") ────────────────────────────────────
     # RelaySettingOutput (schema real) não tem bus_name/relay_type/
     # pickup_current_a/pickup_multiple/time_multiplier/inst_pickup_a/
@@ -903,6 +1031,24 @@ def _sec7(doc, relay_results, coordenograma_b64=None, sc_results=None, elements=
             _nota(doc, f"PONTO DE ATENÇÃO: {len(_sensib_bad)} ajuste(s) com sensibilidade insuficiente pelo critério "
                        "adotado (razão Ik_mín/Ip < mínimo exigido, IEC 60909 §3.2 / Kindermann Cap.3). Revisar pickup "
                        "ou impedância da fonte antes da aprovação final — ver detalhamento por elemento na Seção 9.2.")
+
+        # ── Correção (auditoria 2026-09, achado 2.5) ── Ver docstring
+        # completa de _compute_relay_divergences(). A seletividade/
+        # coordenograma abaixo (Seções 7.3/7.4) continuam calculados com o
+        # ajuste SUGERIDO — este bloco apenas TORNA VISÍVEL quando o
+        # engenheiro confirmou, na tela de Equipamentos, um valor diferente.
+        divergencias = _compute_relay_divergences(relay_results, relay_confirmed)
+        if divergencias:
+            _h2(doc,"7.2.1","Divergência entre Ajuste Sugerido e Ajuste Confirmado pelo Engenheiro")
+            _body(doc,"Os itens abaixo foram CONFIRMADOS pelo engenheiro (tela de Equipamentos) com valor diferente "
+                      "do sugerido pelo motor de cálculo, além da tolerância de 5%. A análise de seletividade e o "
+                      "coordenograma das Seções 7.3/7.4 usam o valor SUGERIDO — a validade da coordenação com o "
+                      "valor efetivamente confirmado deve ser reavaliada manualmente pelo engenheiro responsável "
+                      "antes de gravar o ajuste no relé físico.")
+            _tbl(doc,["Elem","Função","Campo","Sugerido","Confirmado"],
+                [(d["element_code"],d["ansi_function"],d["campo"],d["sugerido"],d["confirmado"]) for d in divergencias],
+                widths=[Cm(2.0),Cm(2.0),Cm(3.0),Cm(3.5),Cm(3.5)],hbg=_C_AZUL_MED,
+                note="Ver motivo detalhado de cada divergência na Seção 9.2.")
     else: _body(doc,"Nenhum resultado de rele disponivel.",italic=True)
     _h2(doc,"7.3","Analise de Seletividade -- Verificacao REAL da Coordenacao (Retaguarda x Jusante)")
     # ── Correção (coordenação real por graduação de TMS): a versão anterior
@@ -1011,11 +1157,16 @@ def _sec8(doc, sc_results, relay_results, system=None):
     _nota(doc,"Em caso de revisao do projeto, todos os calculos devem ser refeitos e o presente relatorio reeditado com nova revisao e assinatura.")
     _sp(doc,4)
 
-def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=None, breaker_results=None):
+def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=None, breaker_results=None, relay_confirmed=None):
     _h1(doc,"9","CONCLUSAO E RECOMENDACOES")
     if sc_results:
-        icc3_vals=[getattr(r,"icc_3ph_ka",0.0) or 0.0 for r in sc_results]
-        ip_vals=[getattr(r,"icc_peak_ka",0.0) or 0.0 for r in sc_results]
+        # Correção (achado 2.1): a corrente MÁXIMA de referência da conclusão
+        # (usada também no critério "Disjuntor com I_cu >= Ik3_max" da Seção
+        # 8) deve refletir o pior caso REAL de dimensionamento (bus_from),
+        # não o valor após a impedância própria de cada elemento (bus_to),
+        # que é sempre menor ou igual.
+        icc3_vals=[getattr(r,"icc_3ph_ka_bus_from",0.0) or getattr(r,"icc_3ph_ka",0.0) or 0.0 for r in sc_results]
+        ip_vals=[getattr(r,"icc_peak_ka_bus_from",0.0) or getattr(r,"icc_peak_ka",0.0) or 0.0 for r in sc_results]
         icc_max=max(icc3_vals,default=0.0); icc_min=min(icc3_vals,default=0.0)
         ip_max=max(ip_vals,default=0.0); n_barras=len(sc_results)
     else: icc_max=icc_min=ip_max=0.0; n_barras=0
@@ -1036,7 +1187,8 @@ def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=
         p.paragraph_format.left_indent=Cm(0.8)
         run=p.add_run(rec); run.font.size=Pt(10); run.font.color.rgb=RGBColor.from_string(_C_CINZA)
     _sp(doc,4)
-    pontos = _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results)
+    divergencias = _compute_relay_divergences(relay_results, relay_confirmed)
+    pontos = _collect_pontos_atencao(ct_results, vt_results, breaker_results, relay_results, divergencias)
     if pontos:
         _h2(doc,"9.2","Pontos de Atenção do Dimensionamento e da Parametrização")
         _body(doc,"Os itens a seguir NÃO configuram reprovação do estudo. Os equipamentos (TC/TP/disjuntor) foram "
@@ -1082,6 +1234,7 @@ def gerar_relatorio_protecao(
     sc_results=None, ct_results=None, vt_results=None,
     breaker_results=None, relay_results=None,
     coordenograma_b64: str = None,
+    relay_confirmed=None,
 ) -> io.BytesIO:
     """
     Gera o Relatorio Tecnico de Estudo de Protecao em formato Word (.docx).
@@ -1105,9 +1258,9 @@ def gerar_relatorio_protecao(
     _sec4(doc,system,elements or [])
     _sec5(doc,sc_results or [],system)
     _sec6(doc,ct_results or [],vt_results or [],breaker_results or [],sc_results or [])
-    _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [],elements or [])
+    _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [],elements or [],relay_confirmed or [])
     _sec8(doc,sc_results or [],relay_results or [],system)
-    _sec9(doc,sc_results or [],relay_results or [],ct_results or [],vt_results or [],breaker_results or [])
+    _sec9(doc,sc_results or [],relay_results or [],ct_results or [],vt_results or [],breaker_results or [],relay_confirmed or [])
     _sec10(doc,study_info)
     buf=io.BytesIO(); doc.save(buf); buf.seek(0)
     return buf

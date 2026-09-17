@@ -196,7 +196,7 @@
               <td><input type="text" x-model="row.name" placeholder="ex: Trecho 1, SE Principal"></td>
               <td><input type="number" x-model.number="row.voltage_kv" step="0.1" min="0" :placeholder="studyParams.v_base_kv"></td>
               <td><input type="number" x-model.number="row.length_km" step="0.001" min="0" placeholder="0.000"></td>
-              <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" list="cableSuggestions" placeholder="ex: CAA Hawk (477 MCM), XLPE-Al 95 mm² MT" title="Digite ou escolha da lista — R1/X1/R0/X0 preenchem automático, mas continuam editáveis para valor real de fabricante"></td>
+              <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" list="cableSuggestions" placeholder="ex: CAA Hawk (477 MCM), XLPE-Al 95 mm² MT" title="Digite ou escolha da lista — R1/X1/R0/X0 preenchem automático, mas continuam editáveis para valor real de fabricante. PREMISSAS do catálogo (condutores nus): X1 por regressão sobre catálogo de fabricante; Z0 por Carson com ρ_solo=100 Ω·m e espaçamento médio 1,2–2,0 m entre fases — NÃO reflete a geometria real do seu projeto. Informe R0/X0 reais quando disponíveis (ver Seção 4.2 do relatório)."></td>
               <td><input type="number" x-model.number="row.r1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.r0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3,5×R1 aérea / 3,5×R1 cabo)"></td>
@@ -206,12 +206,12 @@
               <td><input type="number" x-model.number="row.trafo_z0_percent" step="0.01" min="0" max="30" placeholder="—" title="Vazio = usa a regra padrão pela ligação (Tab.4 IEC 60909)"></td>
               <td><input type="number" x-model.number="row.trafo_voltage_sec_kv" step="0.01" min="0" placeholder="0.380"></td>
               <td class="text-center">
-                <button x-show="row.element_type === 'gerador' || row.element_type === 'motor'"
+                <button x-show="row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador'"
                         @click="row._expanded = !row._expanded"
                         type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;"
                         :style="row._expanded ? 'background:var(--bk-100);' : ''"
                         x-text="row._expanded ? '▲' : '▼'"></button>
-                <span x-show="row.element_type !== 'gerador' && row.element_type !== 'motor'" class="text-soft">—</span>
+                <span x-show="row.element_type !== 'gerador' && row.element_type !== 'motor' && row.element_type !== 'transformador'" class="text-soft">—</span>
               </td>
 
               <td class="text-center mono" style="background:var(--bk-100); font-weight:700; color:var(--bk-700);" x-text="row._z1_mag ? row._z1_mag.toFixed(4) : '—'"></td>
@@ -229,10 +229,51 @@
                de cima) porque um <template x-for> só pode ter UM elemento raiz; duas
                <tr> por iteração exigiriam dois loops paralelos sobre o mesmo array. -->
           <template x-for="(row, idx) in rows" :key="row._uid + '-detail'">
-            <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor')" x-cloak
+            <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador')" x-cloak
                 style="background:var(--bk-50, #f0f7fb);">
               <td></td>
               <td colspan="24" style="padding:10px 14px;">
+                <template x-if="row.element_type === 'transformador'">
+                  <div class="field-grid" style="grid-template-columns:repeat(6,1fr); gap:10px;">
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">Ligação dos enrolamentos <span class="hint">Tab.4 IEC 60909</span></label>
+                      <select x-model="row.trafo_connection" class="select">
+                        <option value="Yg-Yg">Yg-Yg (Z0 propaga)</option>
+                        <option value="Yg-D">Yg-D (Z0=∞ no secundário)</option>
+                        <option value="D-Yg">D-Yg (Z0=∞ no primário)</option>
+                        <option value="D-D">D-D (Z0=∞ nos dois lados)</option>
+                        <option value="Y-Y">Y-Y (neutro não aterrado — Z0=∞)</option>
+                      </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0;" x-show="row.trafo_connection === 'Yg-Yg'">
+                      <label class="text-xs">Aterramento do neutro</label>
+                      <select x-model="row.trafo_grounding" class="select">
+                        <option value="solido">Sólido (Z0=Z0calc)</option>
+                        <option value="resistencia">Resistência (Z0=Z0calc+3Rn)</option>
+                      </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0;" x-show="row.trafo_connection === 'Yg-Yg' && row.trafo_grounding === 'resistencia'">
+                      <label class="text-xs">Rn [&Omega;] <span class="hint">resistor de neutro</span></label>
+                      <input type="number" x-model.number="row.trafo_neutral_z_ohm" step="0.01" min="0" placeholder="0" class="input mono">
+                    </div>
+                    <div class="field" style="margin-bottom:0;">
+                      <label class="text-xs">Proteção diferencial 87T?</label>
+                      <div style="display:flex; align-items:center; gap:6px; height:34px;">
+                        <input type="checkbox" x-model="row.trafo_87t_enabled" id="'87t-'+row._uid">
+                        <label :for="'87t-'+row._uid" class="text-xs text-soft" style="margin:0;">
+                          Habilitar 87T (define classe do TC: PX/Vk × 5P-10P/ALF)
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="text-xs text-soft mt-2" style="margin-bottom:0;">
+                    Correção 2026-09: antes desta versão, o campo "Ligação dos enrolamentos" não existia na tela e o
+                    cálculo sempre usava Yg-Yg internamente, mesmo para transformadores Yg-D reais (a ligação mais
+                    comum em redes de distribuição MT no Brasil) — <strong>confira e corrija a ligação real de cada
+                    transformador já cadastrado antes de considerar válidos os resultados de Icc1&phi;/51N/67N a
+                    jusante</strong>.
+                  </p>
+                </template>
                 <template x-if="row.element_type === 'gerador'">
                   <div class="field-grid" style="grid-template-columns:repeat(6,1fr); gap:10px;">
                     <div class="field" style="margin-bottom:0;">
@@ -618,6 +659,9 @@ function networkGrid() {
         trafo_z_percent: e.trafo_z_percent || 0,
         trafo_z0_percent: e.trafo_z0_percent || null,
         trafo_connection: e.trafo_connection || 'Yg-Yg',
+        trafo_neutral_z_ohm: e.trafo_neutral_z_ohm || 0,
+        trafo_grounding: e.trafo_grounding || 'solido',
+        trafo_87t_enabled: e.trafo_87t_enabled !== false,
         trafo_voltage_sec_kv: e.trafo_voltage_sec_kv || 0,
         gen_s_sub_mva: e.gen_s_sub_mva || 0,
         gen_xpp_percent: e.gen_xpp_percent || 0,
@@ -642,6 +686,7 @@ function networkGrid() {
         voltage_kv: this.studyParams.v_base_kv, length_km: 0,
         cable_name: '', r1_ohm_km: 0, x1_ohm_km: 0, r0_ohm_km: null, x0_ohm_km: null,
         trafo_kva: 0, trafo_z_percent: 0, trafo_z0_percent: null, trafo_connection: 'Yg-Yg', trafo_voltage_sec_kv: 0,
+        trafo_neutral_z_ohm: 0, trafo_grounding: 'solido', trafo_87t_enabled: true,
         gen_s_sub_mva: 0, gen_xpp_percent: 0, gen_x2_percent: 0, gen_x0_percent: 0,
         gen_grounding: 'isolado', gen_neutral_z_ohm: 0,
         motor_s_mva: 0, motor_xpp_percent: 0,
@@ -774,6 +819,9 @@ function networkGrid() {
           trafo_z_percent: parseFloat(r.trafo_z_percent) || 0,
           trafo_z0_percent: r.trafo_z0_percent ? parseFloat(r.trafo_z0_percent) : null,
           trafo_connection: r.trafo_connection || 'Yg-Yg',
+          trafo_neutral_z_ohm: parseFloat(r.trafo_neutral_z_ohm) || 0,
+          trafo_grounding: r.trafo_grounding || 'solido',
+          trafo_87t_enabled: r.trafo_87t_enabled !== false,
           trafo_voltage_sec_kv: parseFloat(r.trafo_voltage_sec_kv) || 0,
           gen_s_sub_mva: parseFloat(r.gen_s_sub_mva) || 0,
           gen_xpp_percent: parseFloat(r.gen_xpp_percent) || 0,

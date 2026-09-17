@@ -54,6 +54,8 @@ def _element_to_dict(e: NetworkElement) -> dict:
         "trafo_z0_percent": e.trafo_z0_percent,
         "trafo_connection": e.trafo_connection,
         "trafo_neutral_z_ohm": e.trafo_neutral_z_ohm,
+        "trafo_grounding": e.trafo_grounding or "solido",
+        "trafo_87t_enabled": e.trafo_87t_enabled if e.trafo_87t_enabled is not None else True,
         "trafo_voltage_sec_kv": e.trafo_voltage_sec_kv,
         "gen_s_sub_mva": e.gen_s_sub_mva,
         "gen_xpp_percent": e.gen_xpp_percent,
@@ -267,6 +269,14 @@ async def api_save_elements(
             trafo_z_percent=_f(ed.get("trafo_z_percent")),
             trafo_z0_percent=_f(ed.get("trafo_z0_percent")) if ed.get("trafo_z0_percent") else None,
             trafo_connection=ed.get("trafo_connection") or "Yg-Yg",
+            # Correção (auditoria 2026-09): trafo_neutral_z_ohm já existia no
+            # modelo/banco, mas nunca era persistido a partir do payload da
+            # UI (achado 2.7) — qualquer valor digitado era descartado ao
+            # salvar. trafo_grounding/trafo_87t_enabled são campos novos
+            # (achados 2.7 e 2.2).
+            trafo_neutral_z_ohm=_f(ed.get("trafo_neutral_z_ohm")),
+            trafo_grounding=ed.get("trafo_grounding") or "solido",
+            trafo_87t_enabled=bool(ed.get("trafo_87t_enabled", True)),
             trafo_voltage_sec_kv=_f(ed.get("trafo_voltage_sec_kv")),
             gen_s_sub_mva=_f(ed.get("gen_s_sub_mva")),
             gen_xpp_percent=_f(ed.get("gen_xpp_percent")),

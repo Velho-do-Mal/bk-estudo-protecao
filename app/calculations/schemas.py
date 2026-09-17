@@ -30,6 +30,10 @@ class ElementInput(BaseModel):
     trafo_z0_percent: Optional[float] = None
     trafo_connection: str = "Yg-Yg"
     trafo_neutral_z_ohm: float = 0.0
+    # Correção (auditoria 2026-09, achados 2.2 e 2.7): ver
+    # engine/domain/network.py::NetworkElement para a documentação completa.
+    trafo_grounding: str = "solido"
+    trafo_87t_enabled: bool = True
     trafo_voltage_sec_kv: float = 0.0
     gen_s_sub_mva: float = 0.0
     gen_xpp_percent: float = 0.0
@@ -145,6 +149,20 @@ class ElementResult(BaseModel):
     icc_peak_ka: float = 0.0
     kappa_factor: float = 0.0
     icc_3ph_lv_ka: float = 0.0  # no secundário (BT)
+
+    # ── Correção (auditoria 2026-09, achado 2.1 CRÍTICO) ── Corrente/pico/κ
+    # calculados na barra de ORIGEM (bus_from) deste elemento, ANTES de
+    # somar sua impedância própria — é o pior caso de corrente passante
+    # para o TC/TP/disjuntor instalado neste ponto (uma falta franca nos
+    # terminais do próprio equipamento, sem a atenuação do trecho/trafo a
+    # jusante). Os campos icc_3ph_ka/icc_peak_ka/kappa_factor acima
+    # continuam sendo os corretos para ALCANCE/COORDENAÇÃO de proteção
+    # (relé olhando para jusante) e para exibição do curto-circuito "no
+    # ponto" — NÃO usar os campos acima para dimensionamento de
+    # equipamento. Ver engine/short_circuit/iec60909.py::CalculatorResult.
+    icc_3ph_ka_bus_from: float = 0.0
+    icc_peak_ka_bus_from: float = 0.0
+    kappa_factor_bus_from: float = 0.0
 
     # Correntes de curto MÍNIMAS (c = 0,95 — IEC 60909 Tab.1) [kA]
     # Usadas para verificação de sensibilidade dos relés (IEC 60909 §3.2;

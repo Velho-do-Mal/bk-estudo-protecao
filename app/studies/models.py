@@ -169,6 +169,11 @@ class NetworkElement(Base):
     trafo_z0_percent: Mapped[Optional[float]] = mapped_column(Float)
     trafo_connection: Mapped[Optional[str]] = mapped_column(String(20), default="Yg-Yg")
     trafo_neutral_z_ohm: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    # Correção (auditoria 2026-09, achados 2.2 e 2.7) — colunas novas,
+    # adicionadas a uma tabela que já existia em produção (ver migração
+    # idempotente em app/database.py::run_migrations_sync()).
+    trafo_grounding: Mapped[Optional[str]] = mapped_column(String(20), default="solido")
+    trafo_87t_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     trafo_voltage_sec_kv: Mapped[Optional[float]] = mapped_column(Float)
 
     # Gerador subtransiente

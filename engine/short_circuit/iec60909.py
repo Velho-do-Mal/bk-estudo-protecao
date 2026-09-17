@@ -113,6 +113,13 @@ class NetworkElement:
     trafo_connection: str = "Yg-Yg"
     trafo_voltage_sec_kv: float = 0.0
     trafo_xr_ratio: float = 10.0      # X/R do trafo (plaqueta ou estimativa)
+    # Aterramento do neutro do trafo (quando a ligação permite Z0 propagar,
+    # ex.: Yg-Yg) — "solido" | "resistencia". Correção auditoria 2026-09
+    # (achado 2.7): trafo_neutral_z_ohm existia no modelo/banco desde antes,
+    # mas nunca chegava ao motor de cálculo nem tinha campo correspondente
+    # aqui — _seq_trafo() sempre assumiu aterramento sólido do neutro.
+    trafo_grounding: str = "solido"
+    trafo_neutral_z_ohm: float = 0.0  # Rn [Ω] — usado quando trafo_grounding="resistencia"
 
     # Gerador síncrono
     gen_s_sub_mva: float = 0.0        # potência subtransitória [MVA]
@@ -233,6 +240,20 @@ def _seq_trafo(elem: NetworkElement) -> SequenceImpedances:
     else:
         # Fallback: usa _z0_trafo (Z0 ≈ Z1 para Yg-Yg, None para Yg-D etc.)
         z0 = _z0_trafo(z1, elem.trafo_connection)
+
+    # Correção (auditoria 2026-09, achado 2.7): quando a ligação permite Z0
+    # propagar (z0 is not None) E o neutro do lado aterrado é aterrado por
+    # RESISTÊNCIA (não sólido), soma-se 3×Rn à parte real de Z0 — mesma
+    # convenção de componentes simétricas usada para geradores (IEC 60909-0
+    # / Kindermann): a impedância de aterramento do neutro entra TRIPLICADA
+    # na malha de sequência zero porque a corrente de neutro é a soma das
+    # três correntes de fase (3×I0) passando pela MESMA impedância Zn.
+    # Rn = elem.trafo_neutral_z_ohm [Ω] — valor físico real do resistor de
+    # aterramento do neutro, não uma grandeza em %/pu do transformador.
+    grounding = elem.trafo_grounding.lower().strip()
+    if z0 is not None and grounding == "resistencia" and elem.trafo_neutral_z_ohm > 0:
+        z0 = complex(z0.real + 3.0 * elem.trafo_neutral_z_ohm, z0.imag)
+
     return SequenceImpedances(z1=z1, z2=z2, z0=z0)
 
 
@@ -301,12 +322,20 @@ def _seq_gerador(elem: NetworkElement) -> SequenceImpedances:
         Depende do aterramento do neutro do gerador.
         Se neutro isolado: Z0 = ∞ (não contribui para Icc1φ)
         Se neutro aterrado sólido: Z0 = j×X0
-        Se neutro por resistência: Z0 = R_n + j×X0
-        (CORREÇÃO: antes desta versão, R_n [gen_neutral_z_ohm] era descrito
+        Se neutro por resistência: Z0 = 3×R_n + j×X0
+        (CORREÇÃO v2.3 original: antes, R_n [gen_neutral_z_ohm] era descrito
         aqui na docstring mas NUNCA somado ao Z0 — o código sempre retornava
         Z0 puramente reativo mesmo com "resistencia" selecionado, o que
         SUBESTIMA a impedância de sequência zero e SUPERESTIMA Icc1φ para
-        geradores aterrados por resistência de neutro.)
+        geradores aterrados por resistência de neutro.
+        CORREÇÃO (auditoria 2026-09, achado 2.3): a correção acima somava
+        apenas 1×Rn, quando a convenção de componentes simétricas exige
+        3×Rn — a impedância de aterramento do neutro é percorrida pela SOMA
+        das três correntes de sequência zero de fase (I_n = 3×I0), então
+        sua contribuição à malha de sequência zero é sempre 3×Zn, nunca
+        1×Zn (IEC 60909-0:2016 §3.6.1; Kindermann, Curto-Circuito, Cap.5).
+        Usar 1×Rn SUBESTIMAVA Z0 e SUPERESTIMAVA Icc1φ para geradores
+        aterrados por resistência de neutro.)
 
     Nota: KG fator de correção = Un / (Ug × (1 + x"d × sin(φ)))
     Como Ug ≈ Un na maioria dos casos, KG ≈ 1 / (1 + x"d × sin(φ))
@@ -332,12 +361,16 @@ def _seq_gerador(elem: NetworkElement) -> SequenceImpedances:
     if grounding == "isolado" or elem.gen_x0_percent <= 0:
         z0 = None  # neutro isolado — não contribui para Icc1φ
     elif grounding == "resistencia":
-        # Z0 = Rn + j×X0 — Rn é o valor de resistência de aterramento do
+        # Z0 = 3×Rn + j×X0 — Rn é o valor de resistência de aterramento do
         # neutro em Ω (elem.gen_neutral_z_ohm), NÃO em % — é um componente
         # físico real instalado no neutro, não uma impedância em pu/base
-        # do gerador (IEC 60909 §3.6.1).
+        # do gerador (IEC 60909 §3.6.1). O fator 3 vem da convenção de
+        # componentes simétricas: a impedância de neutro é percorrida por
+        # 3×I0 (soma das três correntes de sequência zero de fase) — ver
+        # achado 2.3 da auditoria 2026-09, mesma correção aplicada ao
+        # transformador em _seq_trafo() (achado 2.7).
         x0 = (elem.gen_x0_percent / 100.0) * z_base
-        z0 = complex(elem.gen_neutral_z_ohm, x0)
+        z0 = complex(3.0 * elem.gen_neutral_z_ohm, x0)
     else:
         # "solido" (ou qualquer outro valor não reconhecido — default seguro)
         z0 = complex(0.0, (elem.gen_x0_percent / 100.0) * z_base)
@@ -653,6 +686,32 @@ class CalculatorResult:
     #    aproximado apenas na exibição do relatório, não no cálculo) ──
     bus_from: str = ""
     z2_ohm: complex = 0j
+    # ── Correção (auditoria 2026-09, achado 2.1 CRÍTICO): antes, o único
+    #    conjunto de correntes de curto disponível (icc_3ph_ka/icc_peak_ka/
+    #    kappa_factor acima) era calculado APÓS somar a impedância própria
+    #    deste elemento (Z na barra bus_to) — correto para ALCANCE/
+    #    COORDENAÇÃO de proteção (o relé olhando para jusante através do
+    #    próprio trecho), mas ERRADO para DIMENSIONAMENTO do TC/TP/disjuntor
+    #    instalado NESTE ponto (bus_from): o pior caso de corrente passante
+    #    por um equipamento é uma falta franca nos SEUS PRÓPRIOS terminais,
+    #    ou seja, na barra de origem (bus_from), ANTES da impedância do
+    #    próprio trecho/trafo reduzir a corrente. Usar a corrente "após o
+    #    elemento" para dimensionar SUBESTIMA a corrente de curto que o
+    #    equipamento pode ter que suportar/interromper. Os três campos
+    #    abaixo trazem a corrente/pico/κ calculados em bus_from (mesma
+    #    tensão v_from, impedância acumulada z_bus[bus_from], SEM somar a
+    #    impedância própria do elemento) — usar estes para dimensionamento
+    #    de TC (icc_max_ka), disjuntor (icc_3ph_ka/icc_peak_ka/kappa_factor)
+    #    e demais equipamentos instalados neste ponto. Os campos originais
+    #    (icc_3ph_ka etc.) continuam corretos e devem seguir sendo usados
+    #    para alcance de relé, coordenograma e exibição de resultados de
+    #    curto-circuito "no ponto". Referência: IEC 60909:2016 §3.2
+    #    (configuração de rede mais desfavorável — dimensionamento usa a
+    #    maior corrente disponível NO PONTO DE INSTALAÇÃO do equipamento);
+    #    Kindermann, Curto-Circuito, Cap.3.
+    icc_3ph_ka_bus_from: float = 0.0
+    icc_peak_ka_bus_from: float = 0.0
+    kappa_factor_bus_from: float = 0.0
     # ── Correção: distinção explícita "Z0 = ∞ (bloqueado por Yg-D/D-D/etc.)"
     #    vs "Z0 = 0 calculado" — antes ambos viravam complex(0,0) e eram
     #    indistinguíveis a jusante (relatório, UI, análise de sensibilidade) ──
@@ -871,6 +930,15 @@ class IEC60909Calculator:
                 et_val = et_s.value if hasattr(et_s, 'value') else str(et_s)
                 is_trafo = et_val.lower().strip() in ("trafo", "transformador")
 
+                # ── Correção (achado 2.1): impedância/corrente disponíveis na
+                # barra de ORIGEM, ANTES de somar a impedância própria deste
+                # elemento — é o pior caso de corrente passante para o
+                # equipamento (TC/TP/disjuntor) instalado neste ponto. Ver
+                # docstring de CalculatorResult.icc_3ph_ka_bus_from acima.
+                z_at_bus_from = z_bus[bf]
+                icc3_bus_from = _calc_icc_3f(v_from, z_at_bus_from.z1, c)
+                ip_bus_from, kappa_bus_from, _ = _calc_ip(icc3_bus_from, z_at_bus_from.z1)
+
                 z_elem = self._elem_seq(elem)
                 z_out_prim = _accumulate(z_bus[bf], z_elem)
 
@@ -936,6 +1004,9 @@ class IEC60909Calculator:
                     z2_ohm=z_for_icc.z2,
                     z0_ohm=z_for_icc.z0 if z_for_icc.z0 is not None else complex(0, 0),
                     z0_blocked=(z_for_icc.z0 is None),
+                    icc_3ph_ka_bus_from=icc3_bus_from,
+                    icc_peak_ka_bus_from=ip_bus_from,
+                    kappa_factor_bus_from=kappa_bus_from,
                     icc_3ph_ka=icc3, icc_2ph_ka=icc2,
                     icc_1ph_ka=icc1 if icc1 is not None else 0.0,
                     icc_2ph_ground_ka=_calc_icc_2f_ground(v_icc, z_for_icc.z1, z_for_icc.z2, z_for_icc.z0, c),
@@ -1052,6 +1123,8 @@ class IEC60909Calculator:
             trafo_z0_percent=getattr(elem, 'trafo_z0_percent', 0.0) or 0.0,
             trafo_connection=conn_s, trafo_voltage_sec_kv=getattr(elem, 'trafo_voltage_sec_kv', 0.0) or 0.0,
             trafo_xr_ratio=10.0,
+            trafo_grounding=getattr(elem, 'trafo_grounding', None) or 'solido',
+            trafo_neutral_z_ohm=getattr(elem, 'trafo_neutral_z_ohm', 0.0) or 0.0,
             gen_s_sub_mva=getattr(elem, 'gen_s_sub_mva', 0.0) or 0.0,
             gen_xpp_percent=getattr(elem, 'gen_xpp_percent', 0.0) or 0.0,
             gen_x2_percent=getattr(elem, 'gen_x2_percent', 0.0) or 0.0,

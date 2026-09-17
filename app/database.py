@@ -177,6 +177,10 @@ def run_migrations_sync() -> None:
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_x2_percent FLOAT DEFAULT 0.0",
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_x0_percent FLOAT DEFAULT 0.0",
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS gen_grounding VARCHAR(20) DEFAULT 'isolado'",
+        # Correção (auditoria 2026-09, achados 2.2 e 2.7) — colunas novas em
+        # app/studies/models.py::NetworkElement.
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS trafo_grounding VARCHAR(20) DEFAULT 'solido'",
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS trafo_87t_enabled BOOLEAN DEFAULT TRUE NOT NULL",
     ]
     cur = conn.cursor()
     for stmt in stmts:

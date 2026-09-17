@@ -93,11 +93,34 @@ class ReportService:
                     trafo_z0_percent=e.trafo_z0_percent,
                     trafo_connection=e.trafo_connection or "Yg-Yg",
                     trafo_neutral_z_ohm=e.trafo_neutral_z_ohm or 0.0,
+                    # Correção (auditoria 2026-09, achado encontrado durante
+                    # verificação end-to-end dos achados 2.2/2.7/2.3): esta
+                    # função constrói o ElementInput usado para RECALCULAR o
+                    # estudo na geração do relatório .docx — um caminho de
+                    # código SEPARADO de app/calculations/service.py::
+                    # _build_network_element (usado pela tela de cálculo
+                    # interativo). Os campos abaixo já existiam no schema/
+                    # banco e já eram usados corretamente pelo cálculo
+                    # interativo, mas nunca tinham sido propagados aqui —
+                    # ou seja, o RELATÓRIO .docx entregue ao cliente sempre
+                    # recalculava usando os valores DEFAULT (gen_grounding=
+                    # "isolado", trafo_87t_enabled=True, trafo_grounding=
+                    # "solido"), IGNORANDO silenciosamente o que o
+                    # engenheiro efetivamente configurou na tela de Rede/
+                    # Equipamentos, sempre que esses valores fossem
+                    # diferentes do default. Confirmado via teste de ponta a
+                    # ponta durante esta correção (trafo_87t_enabled=False
+                    # continuava gerando 87T no relatório antes desta linha).
+                    trafo_grounding=e.trafo_grounding or "solido",
+                    trafo_87t_enabled=e.trafo_87t_enabled if e.trafo_87t_enabled is not None else True,
                     trafo_voltage_sec_kv=e.trafo_voltage_sec_kv or 0.0,
                     gen_s_sub_mva=e.gen_s_sub_mva or 0.0,
                     gen_xpp_percent=e.gen_xpp_percent or 0.0,
                     gen_connection=e.gen_connection or "Y",
                     gen_neutral_z_ohm=e.gen_neutral_z_ohm or 0.0,
+                    gen_x2_percent=e.gen_x2_percent or 0.0,
+                    gen_x0_percent=e.gen_x0_percent or 0.0,
+                    gen_grounding=e.gen_grounding or "isolado",
                     motor_s_mva=e.motor_s_mva or 0.0,
                     motor_xpp_percent=e.motor_xpp_percent or 0.0,
                     motor_connection=e.motor_connection or "Y",
@@ -186,6 +209,18 @@ class ReportService:
             "voltage_factor_c": float(study.voltage_factor_c or 1.10),
         }
 
+        # Correção (auditoria 2026-09, achado 2.5): carrega os ajustes
+        # CONFIRMADOS pelo engenheiro (tela de Equipamentos) para que o
+        # relatório possa sinalizar divergência em relação ao ajuste
+        # sugerido pelo motor — ver _compute_relay_divergences() em
+        # engine/reports/relatorio_protecao.py. Não altera o cálculo de
+        # seletividade/coordenograma, que continua usando o valor sugerido.
+        from app.studies.models import StudyRelay
+        relay_confirmed_result = await self.db.execute(
+            select(StudyRelay).where(StudyRelay.study_id == study_id)
+        )
+        relay_confirmed = relay_confirmed_result.scalars().all()
+
         from engine.reports.relatorio_protecao import gerar_relatorio_protecao
 
         buf = gerar_relatorio_protecao(
@@ -198,5 +233,6 @@ class ReportService:
             breaker_results=result.breaker_sizing,
             relay_results=result.relay_settings,
             coordenograma_b64=result.coordenograma_b64,
+            relay_confirmed=relay_confirmed,
         )
         return buf
