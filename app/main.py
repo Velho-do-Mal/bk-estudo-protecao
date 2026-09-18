@@ -7,6 +7,7 @@ Application factory com registro de routers, middlewares e lifespan.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
-from app.database import create_all_tables
+from app.database import create_all_tables, run_migrations_sync
 import app.models_registry  # noqa: F401 — garante registro de todos os modelos
 
 logger = logging.getLogger(__name__)
@@ -34,13 +35,37 @@ async def lifespan(app: FastAPI):
     Path(settings.REPORTS_DIR).mkdir(parents=True, exist_ok=True)
     Path("./static/img").mkdir(parents=True, exist_ok=True)
 
-    # Em desenvolvimento: criar tabelas automaticamente
-    if settings.APP_ENV == "development":
+    # Cria tabelas ausentes (idempotente — Base.metadata.create_all só cria o
+    # que não existe; nunca altera tabela já existente). Antes só rodava em
+    # desenvolvimento; agora roda sempre, também em produção.
+    try:
+        await create_all_tables()
+        logger.info("Tabelas verificadas/criadas.")
+    except Exception as e:
+        logger.warning(f"Não foi possível criar tabelas automaticamente: {e}")
+
+    # Correção (2026-09): aplica as migrações de coluna nova (ALTER TABLE
+    # ADD COLUMN IF NOT EXISTS, idempotente — ver app/database.py::
+    # run_migrations_sync) automaticamente a cada start do app, também em
+    # produção. Antes, essa função só rodava manualmente (python
+    # create_tables.py no console do Railway) — se esse passo fosse
+    # esquecido depois de um deploy que adiciona campo novo ao modelo
+    # (ex.: trafo_grounding/trafo_87t_enabled da auditoria 2026-09), o
+    # schema do Postgres/Neon ficava desatualizado em relação ao ORM e
+    # QUALQUER rota que lesse/gravasse a tabela afetada quebrava com 500
+    # (asyncpg.exceptions.UndefinedColumnError) — foi exatamente a causa do
+    # erro 500 ao acessar um estudo (rotas /studies/{id}/network,
+    # /equipment e /diagram, que carregam NetworkElement). Só roda contra
+    # Postgres (run_migrations_sync usa pg8000, incompatível com SQLite,
+    # usado em desenvolvimento). Rodada em thread separada
+    # (asyncio.to_thread) por ser uma chamada síncrona (pg8000), evitando
+    # bloquear o event loop.
+    if not settings.DATABASE_URL.startswith("sqlite"):
         try:
-            await create_all_tables()
-            logger.info("Tabelas verificadas/criadas (modo desenvolvimento).")
+            await asyncio.to_thread(run_migrations_sync)
+            logger.info("Migrações de colunas aplicadas.")
         except Exception as e:
-            logger.warning(f"Não foi possível criar tabelas automaticamente: {e}")
+            logger.warning(f"Não foi possível aplicar migrações automaticamente: {e}")
 
     logger.info(f"{settings.APP_NAME} iniciado com sucesso.")
     yield

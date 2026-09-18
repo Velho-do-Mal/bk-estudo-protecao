@@ -171,6 +171,14 @@ def run_migrations_sync() -> None:
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_r0_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS z_source_x0_ohm FLOAT DEFAULT 0.0",
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS relay_curve_type VARCHAR(20) DEFAULT 'EI'",
+        # Correção (2026-09, achado do erro 500 ao acessar um estudo):
+        # studies.neutral_grounding (regime de aterramento p/ Ktf do TP, ver
+        # engine/sizing/vt_sizing.py) foi adicionada ao modelo ORM em algum
+        # momento após a criação original da tabela em produção, mas nunca
+        # tinha sido incluída aqui — mesmo problema estrutural do achado
+        # 2.2/2.7 abaixo, encontrado ao auditar TODAS as colunas do modelo
+        # contra esta lista de migração.
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS neutral_grounding VARCHAR(20) DEFAULT 'isolado'",
         # Z2/Z0 do gerador síncrono (IEC 60909 §3.6.1 Tab.13) — colunas novas
         # em app/studies/models.py::NetworkElement, adicionadas a uma tabela
         # que já existia em produção antes destes campos serem criados.
@@ -181,6 +189,11 @@ def run_migrations_sync() -> None:
         # app/studies/models.py::NetworkElement.
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS trafo_grounding VARCHAR(20) DEFAULT 'solido'",
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS trafo_87t_enabled BOOLEAN DEFAULT TRUE NOT NULL",
+        # Correção (2026-09, mesmo achado do erro 500 ao acessar um estudo):
+        # network_elements.has_protection (indica se o elemento tem
+        # proteção própria, usado para decidir se sugere ajuste de relé)
+        # também nunca tinha migração — mesma causa raiz.
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS has_protection BOOLEAN DEFAULT TRUE NOT NULL",
     ]
     cur = conn.cursor()
     for stmt in stmts:
