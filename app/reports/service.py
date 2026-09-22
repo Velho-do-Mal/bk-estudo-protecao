@@ -89,6 +89,12 @@ class ReportService:
                     r0_ohm_km=e.r0_ohm_km,
                     x0_ohm_km=e.x0_ohm_km,
                     cable_name=e.cable_name,
+                    # Diagnóstico de Z0m (opção B, 2026-09) — ver
+                    # engine/short_circuit/mutual_coupling.py — nunca tinha
+                    # sido propagado aqui antes de existir (campo novo).
+                    circuito_duplo_par_code=e.circuito_duplo_par_code,
+                    dmg_circuitos_m=e.dmg_circuitos_m,
+                    comprimento_acoplado_km=e.comprimento_acoplado_km,
                     trafo_kva=e.trafo_kva or 0.0,
                     trafo_z_percent=z_pct,
                     trafo_z0_percent=e.trafo_z0_percent,

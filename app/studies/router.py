@@ -49,6 +49,9 @@ def _element_to_dict(e: NetworkElement) -> dict:
         "r0_ohm_km": e.r0_ohm_km,
         "x0_ohm_km": e.x0_ohm_km,
         "cable_name": e.cable_name,
+        "circuito_duplo_par_code": e.circuito_duplo_par_code,
+        "dmg_circuitos_m": e.dmg_circuitos_m,
+        "comprimento_acoplado_km": e.comprimento_acoplado_km,
         "trafo_kva": e.trafo_kva,
         "trafo_z_percent": e.trafo_z_percent,
         "trafo_z0_percent": e.trafo_z0_percent,
@@ -267,6 +270,13 @@ async def api_save_elements(
             x1_ohm_km=_f(ed.get("x1_ohm_km")),
             r0_ohm_km=_f(ed.get("r0_ohm_km")) if ed.get("r0_ohm_km") else None,
             x0_ohm_km=_f(ed.get("x0_ohm_km")) if ed.get("x0_ohm_km") else None,
+            # Correção (2026-09, diagnóstico de Z0m — opção B): campos
+            # opcionais para marcar par de circuito duplo e sua DMG real.
+            circuito_duplo_par_code=(ed.get("circuito_duplo_par_code") or "").strip() or None,
+            dmg_circuitos_m=_f(ed.get("dmg_circuitos_m")) if ed.get("dmg_circuitos_m") else None,
+            comprimento_acoplado_km=(
+                _f(ed.get("comprimento_acoplado_km")) if ed.get("comprimento_acoplado_km") else None
+            ),
             trafo_kva=_f(ed.get("trafo_kva")),
             trafo_z_percent=_f(ed.get("trafo_z_percent")),
             trafo_z0_percent=_f(ed.get("trafo_z0_percent")) if ed.get("trafo_z0_percent") else None,

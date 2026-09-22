@@ -94,6 +94,12 @@
         <li>Fonte (concessionária), transformador e gerador: Z2 e Z0 usam aproximação conservadora (Z2=Z0=Z1) apenas
           quando não informados — preencha os campos de Z2/Z0/aterramento nas telas de "Rede Elétrica" para usar
           o dado real do projeto em vez da aproximação</li>
+        <li>Circuitos duplos (duas linhas aéreas na mesma torre/faixa de servidão): o curto-circuito e os ajustes de
+          proteção (Seções 5 a 7 do relatório) tratam cada circuito como INDEPENDENTE — o acoplamento mútuo de
+          sequência zero (Z0m) entre os dois circuitos NÃO é somado ao resultado principal. Quando o par de linhas
+          e a DMG real entre os circuitos são informados na aba "Rede Elétrica", um diagnóstico à parte do Z0m
+          estimado (Carson) e da razão |Z0m|/|Z0| é incluído como apêndice do relatório (Seção 9.3), para avaliação
+          do engenheiro responsável — sem alterar os resultados de Icc/proteção</li>
         <li>X/R = 10 assumido para transformadores sem dados de fábrica</li>
         <li>Motores: reatância subtransitória X" = 16,7% assumida (IEC 60909-0 §4.3.4)</li>
         <li>Os resultados requerem validação por engenheiro habilitado — CREA/CFM</li>

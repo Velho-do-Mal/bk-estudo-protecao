@@ -199,19 +199,19 @@
               <td><input type="text" x-model="row.cable_name" @change="lookupCable(row)" list="cableSuggestions" placeholder="ex: CAA Hawk (477 MCM), XLPE-Al 95 mm² MT" title="Digite ou escolha da lista — R1/X1/R0/X0 preenchem automático, mas continuam editáveis para valor real de fabricante. PREMISSAS do catálogo (condutores nus): X1 por regressão sobre catálogo de fabricante; Z0 por Carson com ρ_solo=100 Ω·m e espaçamento médio 1,2–2,0 m entre fases — NÃO reflete a geometria real do seu projeto. Informe R0/X0 reais quando disponíveis (ver Seção 4.2 do relatório)."></td>
               <td><input type="number" x-model.number="row.r1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
               <td><input type="number" x-model.number="row.x1_ohm_km" step="0.00001" min="0" placeholder="0.000"></td>
-              <td><input type="number" x-model.number="row.r0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3,5×R1 aérea / 3,5×R1 cabo)"></td>
-              <td><input type="number" x-model.number="row.x0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa de Carson (3×X1 aérea / 3,5×X1 cabo)"></td>
+              <td><input type="number" x-model.number="row.r0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa: linha aérea usa R1 + correção de Carson (retorno pela terra, só depende da frequência); cabo usa 3,5×R1 (retorno pela blindagem)"></td>
+              <td><input type="number" x-model.number="row.x0_ohm_km" step="0.00001" min="0" placeholder="Carson" title="Vazio = estimativa: linha aérea usa 3×X1 + correção de Carson parametrizada pela Resistividade do Solo (aba Dados do Sistema); cabo usa 3,5×X1 (retorno pela blindagem, não depende do solo)"></td>
               <td><input type="number" x-model.number="row.trafo_kva" step="1" min="0" placeholder="0"></td>
               <td><input type="number" x-model.number="row.trafo_z_percent" step="0.01" min="0" max="30" placeholder="6.0"></td>
               <td><input type="number" x-model.number="row.trafo_z0_percent" step="0.01" min="0" max="30" placeholder="—" title="Vazio = usa a regra padrão pela ligação (Tab.4 IEC 60909)"></td>
               <td><input type="number" x-model.number="row.trafo_voltage_sec_kv" step="0.01" min="0" placeholder="0.380"></td>
               <td class="text-center">
-                <button x-show="row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador'"
+                <button x-show="row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador' || row.element_type === 'linha'"
                         @click="row._expanded = !row._expanded"
                         type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;"
                         :style="row._expanded ? 'background:var(--bk-100);' : ''"
                         x-text="row._expanded ? '▲' : '▼'"></button>
-                <span x-show="row.element_type !== 'gerador' && row.element_type !== 'motor' && row.element_type !== 'transformador'" class="text-soft">—</span>
+                <span x-show="row.element_type !== 'gerador' && row.element_type !== 'motor' && row.element_type !== 'transformador' && row.element_type !== 'linha'" class="text-soft">—</span>
               </td>
 
               <td class="text-center mono" style="background:var(--bk-100); font-weight:700; color:var(--bk-700);" x-text="row._z1_mag ? row._z1_mag.toFixed(4) : '—'"></td>
@@ -229,7 +229,7 @@
                de cima) porque um <template x-for> só pode ter UM elemento raiz; duas
                <tr> por iteração exigiriam dois loops paralelos sobre o mesmo array. -->
           <template x-for="(row, idx) in rows" :key="row._uid + '-detail'">
-            <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador')" x-cloak
+            <tr x-show="row._expanded && (row.element_type === 'gerador' || row.element_type === 'motor' || row.element_type === 'transformador' || row.element_type === 'linha')" x-cloak
                 style="background:var(--bk-50, #f0f7fb);">
               <td></td>
               <td colspan="24" style="padding:10px 14px;">
@@ -320,6 +320,35 @@
                   <p class="text-xs text-soft mt-2" style="margin-bottom:0;">
                     Motores de indução: Z2=Z1 (IEC 60909 §3.8) e Z0=∞ (neutro não aterrado) — sem campos adicionais.
                   </p>
+                </template>
+                <template x-if="row.element_type === 'linha'">
+                  <div>
+                    <div class="field-grid" style="grid-template-columns:repeat(4,1fr); gap:10px;">
+                      <div class="field" style="margin-bottom:0;">
+                        <label class="text-xs">Circuito duplo — código do par <span class="hint">opcional</span></label>
+                        <input type="text" x-model="row.circuito_duplo_par_code" placeholder="ex: LT-02" class="input mono"
+                               title="Código (coluna 'De/Para') da OUTRA linha aérea que compartilha a mesma torre/faixa de servidão. Deixe vazio se não houver circuito duplo.">
+                      </div>
+                      <div class="field" style="margin-bottom:0;" x-show="!!row.circuito_duplo_par_code">
+                        <label class="text-xs">DMG entre circuitos [m] <span class="hint">obrigatório p/ Z0m</span></label>
+                        <input type="number" x-model.number="row.dmg_circuitos_m" step="0.01" min="0.01" placeholder="ex: 8.5" class="input mono"
+                               title="Distância Média Geométrica entre os feixes de fase dos dois circuitos (dado de projeto/geometria da torre) — sem esse valor real, o Z0m NÃO pode ser calculado (não há como estimar por fórmula genérica).">
+                      </div>
+                      <div class="field" style="margin-bottom:0;" x-show="!!row.circuito_duplo_par_code">
+                        <label class="text-xs">Trecho acoplado [km] <span class="hint">vazio = usa L deste trecho</span></label>
+                        <input type="number" x-model.number="row.comprimento_acoplado_km" step="0.001" min="0" placeholder="auto" class="input mono"
+                               title="Extensão em que os dois circuitos correm fisicamente em paralelo na mesma torre/faixa. Deixe vazio para assumir o comprimento total (L) deste trecho.">
+                      </div>
+                    </div>
+                    <p class="text-xs text-soft mt-2" style="margin-bottom:0;">
+                      Diagnóstico apenas: informar o par aqui NÃO altera o curto-circuito/proteção calculados neste
+                      trecho — apenas soma um apêndice ao relatório .docx com o acoplamento mútuo de sequência zero
+                      (Z0m) estimado entre os dois circuitos (Carson, retorno pela terra) e a razão Z0m/Z0, para
+                      avaliação de impacto em relés de terra (67N/51N) conforme boa prática de proteção de LTs em
+                      circuito duplo. O motor de curto-circuito principal continua tratando os dois circuitos como
+                      independentes (sem acoplamento) — ver limitação no relatório.
+                    </p>
+                  </div>
                 </template>
               </td>
             </tr>
@@ -656,6 +685,9 @@ function networkGrid() {
         x1_ohm_km: e.x1_ohm_km || 0,
         r0_ohm_km: e.r0_ohm_km || null,
         x0_ohm_km: e.x0_ohm_km || null,
+        circuito_duplo_par_code: e.circuito_duplo_par_code || '',
+        dmg_circuitos_m: e.dmg_circuitos_m || null,
+        comprimento_acoplado_km: e.comprimento_acoplado_km || null,
         trafo_kva: e.trafo_kva || 0,
         trafo_z_percent: e.trafo_z_percent || 0,
         trafo_z0_percent: e.trafo_z0_percent || null,
@@ -686,6 +718,7 @@ function networkGrid() {
         bus_from: `P${n}`, bus_to: `P${n+1}`, has_protection: true,
         voltage_kv: this.studyParams.v_base_kv, length_km: 0,
         cable_name: '', r1_ohm_km: 0, x1_ohm_km: 0, r0_ohm_km: null, x0_ohm_km: null,
+        circuito_duplo_par_code: '', dmg_circuitos_m: null, comprimento_acoplado_km: null,
         trafo_kva: 0, trafo_z_percent: 0, trafo_z0_percent: null, trafo_connection: 'Yg-Yg', trafo_voltage_sec_kv: 0,
         trafo_neutral_z_ohm: 0, trafo_grounding: 'solido', trafo_87t_enabled: true,
         gen_s_sub_mva: 0, gen_xpp_percent: 0, gen_x2_percent: 0, gen_x0_percent: 0,

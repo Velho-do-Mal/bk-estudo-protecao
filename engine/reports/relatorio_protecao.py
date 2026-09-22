@@ -1157,7 +1157,7 @@ def _sec8(doc, sc_results, relay_results, system=None):
     _nota(doc,"Em caso de revisao do projeto, todos os calculos devem ser refeitos e o presente relatorio reeditado com nova revisao e assinatura.")
     _sp(doc,4)
 
-def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=None, breaker_results=None, relay_confirmed=None):
+def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=None, breaker_results=None, relay_confirmed=None, elements=None, system=None):
     _h1(doc,"9","CONCLUSAO E RECOMENDACOES")
     if sc_results:
         # Correção (achado 2.1): a corrente MÁXIMA de referência da conclusão
@@ -1205,6 +1205,64 @@ def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=
             p.paragraph_format.left_indent=Cm(0.8)
             r1=p.add_run(f"{tipo} {cod}: "); r1.bold=True; r1.font.size=Pt(10); r1.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
             r2=p.add_run(motivo); r2.font.size=Pt(10); r2.font.color.rgb=RGBColor.from_string(_C_CINZA)
+        _sp(doc,4)
+
+    # ── Correção (2026-09, diagnóstico de Z0m — decisão do usuário: opção
+    # B, cálculo à parte sem alterar o motor principal de curto-circuito).
+    # Ver engine/short_circuit/mutual_coupling.py para a fórmula (Carson,
+    # verificada contra opusonesolutions/carsons) e a justificativa do
+    # escopo limitado. Só aparece quando há pelo menos um par de linhas
+    # marcado como circuito duplo COM a DMG real informada — sem esse
+    # dado de geometria, nada é estimado.
+    from engine.short_circuit.mutual_coupling import compute_double_circuit_diagnostics
+    rho_solo = getattr(system, "rho_solo_ohm_m", None) or 100.0
+    freq_hz = getattr(system, "frequency_hz", None) or 60.0
+    z0_by_code = {}
+    for r in (sc_results or []):
+        if getattr(r, "z0_blocked", False):
+            continue
+        code = getattr(r, "element_code", None)
+        if not code:
+            continue
+        z0_by_code[code] = complex(getattr(r, "z0_r_ohm", 0.0) or 0.0, getattr(r, "z0_x_ohm", 0.0) or 0.0)
+    coupling = compute_double_circuit_diagnostics(elements or [], rho_solo, freq_hz, z0_by_code)
+    if coupling:
+        _h2(doc,"9.3","Diagnóstico de Acoplamento Mútuo de Sequência Zero (Z0m) — Circuitos Duplos")
+        _body(doc,
+            "Os pares de linha aérea a seguir foram identificados como circuito duplo (mesma torre/faixa de "
+            "servidão), com Distância Média Geométrica (DMG) real informada entre os dois circuitos. O Z0m "
+            "estimado abaixo (Carson, retorno pela terra, parametrizado pela Resistividade do Solo da Seção 4.1) "
+            "é EXCLUSIVAMENTE DIAGNÓSTICO — o cálculo de curto-circuito e os ajustes de proteção das Seções 5 a 7 "
+            "continuam tratando os dois circuitos como independentes (sem acoplamento mútuo), conforme o escopo "
+            "definido para esta versão do estudo. A razão |Z0m|/|Z0| indica o quanto a tensão de sequência zero "
+            "induzida pelo circuito vizinho pode representar frente à impedância própria do circuito — valores "
+            "significativos (tipicamente > 0,10-0,15 na prática de proteção de linhas em circuito duplo — ver "
+            "Blackburn & Kindermann, 'Protective Relaying: Principles and Applications') indicam que o ajuste de "
+            "relés de terra (67N/51N) e a leitura de localizadores de falta desses circuitos merecem avaliação "
+            "específica do engenheiro responsável, incluindo eventual compensação de acoplamento mútuo no relé, "
+            "não coberta pelos ajustes automáticos deste relatório.")
+        rows_z0m = []
+        for c in coupling:
+            ratio_a = f"{c.ratio_a:.3f}" if c.ratio_a is not None else "---"
+            ratio_b = f"{c.ratio_b:.3f}" if c.ratio_b is not None else "---"
+            rows_z0m.append((
+                f"{c.code_a} / {c.code_b}",
+                f"{c.dmg_m:.2f}",
+                f"{c.comprimento_km:.3f}",
+                f"{c.z0m_ohm_km.real:.5f}",
+                f"{c.z0m_ohm_km.imag:.5f}",
+                f"{abs(c.z0m_total_ohm):.5f}",
+                ratio_a,
+                ratio_b,
+            ))
+        _tbl(doc,["Par (circuitos)","DMG (m)","L acoplado (km)","R0m (Ω/km)","X0m (Ω/km)","|Z0m| total (Ω)","|Z0m|/|Z0| A","|Z0m|/|Z0| B"],rows_z0m,
+            widths=[Cm(2.4),Cm(1.3),Cm(1.7),Cm(1.5),Cm(1.5),Cm(1.7),Cm(1.6),Cm(1.6)],
+            hbg=_C_AZUL_MED,
+            note="Z0m = 3×(ΔR_Carson + jX_Carson(DMG,ρ_solo)) — mútua de sequência zero entre os dois circuitos, "
+                 "assumindo ambos transpostos/simétricos (mesma hipótese já usada para Z0=3×Z_própria no restante "
+                 "do motor). |Z0m|/|Z0| = razão informativa frente à impedância própria de sequência zero JÁ "
+                 "calculada para aquele circuito (Seção 5.1) — '---' quando o Z0 do circuito está bloqueado "
+                 "(trafo a jusante com ligação que impede seq. zero) ou não disponível.")
         _sp(doc,4)
 
 def _sec10(doc, info):
@@ -1260,7 +1318,7 @@ def gerar_relatorio_protecao(
     _sec6(doc,ct_results or [],vt_results or [],breaker_results or [],sc_results or [])
     _sec7(doc,relay_results or [],coordenograma_b64,sc_results or [],elements or [],relay_confirmed or [])
     _sec8(doc,sc_results or [],relay_results or [],system)
-    _sec9(doc,sc_results or [],relay_results or [],ct_results or [],vt_results or [],breaker_results or [],relay_confirmed or [])
+    _sec9(doc,sc_results or [],relay_results or [],ct_results or [],vt_results or [],breaker_results or [],relay_confirmed or [],elements or [],system)
     _sec10(doc,study_info)
     buf=io.BytesIO(); doc.save(buf); buf.seek(0)
     return buf

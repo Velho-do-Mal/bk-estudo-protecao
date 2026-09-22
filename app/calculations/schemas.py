@@ -25,6 +25,15 @@ class ElementInput(BaseModel):
     r0_ohm_km: Optional[float] = None
     x0_ohm_km: Optional[float] = None
     cable_name: Optional[str] = None
+
+    # Acoplamento mútuo de sequência zero (Z0m) com circuito duplo em mesma
+    # torre/faixa de servidão — SOMENTE DIAGNÓSTICO (apêndice do relatório,
+    # ver engine/short_circuit/mutual_coupling.py); NÃO participa do
+    # cálculo de curto-circuito/proteção principal (decisão do usuário,
+    # 2026-09, opção B).
+    circuito_duplo_par_code: Optional[str] = None
+    dmg_circuitos_m: Optional[float] = Field(default=None, gt=0)
+    comprimento_acoplado_km: Optional[float] = Field(default=None, gt=0)
     trafo_kva: float = Field(default=0.0, ge=0)
     trafo_z_percent: float = Field(default=0.0, ge=0, le=30)
     trafo_z0_percent: Optional[float] = None

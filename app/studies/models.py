@@ -174,6 +174,17 @@ class NetworkElement(Base):
     x0_ohm_km: Mapped[Optional[float]] = mapped_column(Float)
     cable_name: Mapped[Optional[str]] = mapped_column(String(100))
 
+    # Acoplamento mútuo de sequência zero (Z0m) com um circuito duplo em
+    # mesma torre/faixa de servidão — SOMENTE DIAGNÓSTICO (apêndice do
+    # relatório .docx via engine/short_circuit/mutual_coupling.py); NÃO
+    # altera o curto-circuito/proteção calculados pelo motor principal
+    # (IEC60909Calculator), que continua tratando cada "linha" como
+    # circuito independente. Ver decisão explícita do usuário (2026-09):
+    # opção B — cálculo diagnóstico limitado, sem reestruturar o solver.
+    circuito_duplo_par_code: Mapped[Optional[str]] = mapped_column(String(100))
+    dmg_circuitos_m: Mapped[Optional[float]] = mapped_column(Float)
+    comprimento_acoplado_km: Mapped[Optional[float]] = mapped_column(Float)
+
     # Transformador
     trafo_kva: Mapped[Optional[float]] = mapped_column(Float)
     trafo_z_percent: Mapped[Optional[float]] = mapped_column(Float)

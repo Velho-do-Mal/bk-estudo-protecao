@@ -198,6 +198,14 @@ def run_migrations_sync() -> None:
         # proteção própria, usado para decidir se sugere ajuste de relé)
         # também nunca tinha migração — mesma causa raiz.
         "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS has_protection BOOLEAN DEFAULT TRUE NOT NULL",
+        # Correção (2026-09, diagnóstico de Z0m — decisão do usuário: opção
+        # B, cálculo à parte sem alterar o motor principal). Campos opcionais
+        # para marcar um par de linhas aéreas como circuito duplo (mesma
+        # torre/faixa) e informar a DMG real entre os dois circuitos — ver
+        # engine/short_circuit/mutual_coupling.py.
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS circuito_duplo_par_code VARCHAR(100)",
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS dmg_circuitos_m FLOAT",
+        "ALTER TABLE network_elements ADD COLUMN IF NOT EXISTS comprimento_acoplado_km FLOAT",
     ]
     cur = conn.cursor()
     for stmt in stmts:
