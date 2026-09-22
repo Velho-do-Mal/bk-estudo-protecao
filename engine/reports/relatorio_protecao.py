@@ -6,24 +6,40 @@ Gerador de Relatorio Tecnico Word -- Estudo de Protecao de Sistemas Eletricos
 BK Engenharia e Tecnologia -- v3.0
 """
 from __future__ import annotations
-import io, math, datetime
+import io, math, datetime, os
 from typing import Any
 from docx import Document
-from docx.shared import Pt, Cm, RGBColor
+from docx.shared import Pt, Cm, RGBColor, Emu
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from lxml import etree
 from engine.protection.relay_curves import get_curve
 
-_C_AZUL_ESC = "1F3864"
-_C_AZUL_MED = "2E74B5"
-_C_AZUL_LIG = "BDD7EE"
-_C_CINZA    = "404040"
-_C_CINZA2   = "F2F2F2"
+# ── Padrão visual BK (Documento Padrão BK — memórias de cálculo/estudos) ──
+# Paleta e tipografia alinhadas ao "DOCUMENTO PADRÃO BK.docx" fornecido pelo
+# cliente em 2026-09: corpo do documento em preto/cinza (Arial), com azul
+# claro reservado exclusivamente ao cabeçalho/rodapé corrido (chrome fixo
+# de identificação do documento), exatamente como no padrão. Constantes
+# _C_AZUL_* preservadas por compatibilidade de nome em todo o arquivo, mas
+# redefinidas para a paleta cinza/preta do padrão (usadas como fundo de
+# cabeçalho de tabela — nunca mais como cor de texto de título, que agora
+# é sempre preta, aplicada diretamente em _h1/_h2/_nota/etc.).
+_C_PRETO    = "000000"
+_C_AZUL_ESC = "D9D9D9"   # fundo de cabeçalho de tabela (padrão) — cinza claro
+_C_AZUL_MED = "D9D9D9"   # idem — mantido por compatibilidade com chamadas existentes
+_C_AZUL_LIG = "F2F2F2"   # fundo de cabeçalho de tabela secundária (memória de cálculo)
+_C_CINZA    = "000000"   # texto de corpo — preto (padrão), antes cinza-escuro
+_C_CINZA2   = "FFFFFF"   # sem zebra nas tabelas (padrão usa linhas brancas)
 _C_BRANCO   = "FFFFFF"
+_C_HDR_SHADE = "D9E2F3"  # azul claro do cabeçalho corrido (Código/Revisão/Documento/Aprovação/Pag.)
+_C_FTR_SHADE = "DEEAF6"  # azul claro do rodapé corrido (contatos)
 _MNS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+_BK_LOGO_HEADER = os.path.join(_ASSETS_DIR, "bk_logo_header.jpg")
+_BK_LOGO_CAPA = os.path.join(_ASSETS_DIR, "bk_logo_capa.jpeg")
 
 def _set_cell_bg(cell, hex_color):
     tc = cell._tc; tcPr = tc.get_or_add_tcPr()
@@ -31,7 +47,7 @@ def _set_cell_bg(cell, hex_color):
     shd.set(qn("w:val"),"clear"); shd.set(qn("w:color"),"auto"); shd.set(qn("w:fill"),hex_color)
     tcPr.append(shd)
 
-def _set_cell_border(cell, sides=("top","bottom","left","right"), sz="4", color="CCCCCC"):
+def _set_cell_border(cell, sides=("top","bottom","left","right"), sz="4", color="000000"):
     tc = cell._tc; tcPr = tc.get_or_add_tcPr(); tcBdr = OxmlElement("w:tcBorders")
     for side in sides:
         el = OxmlElement(f"w:{side}")
@@ -48,7 +64,7 @@ def _cell_write(cell, text, bold=False, italic=False, size=9, color=_C_CINZA, ce
     run.bold = bold; run.italic = italic
     run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(color)
 
-def _hline(doc, color=_C_AZUL_MED, sz="6", before=2, after=4):
+def _hline(doc, color=_C_PRETO, sz="6", before=2, after=4):
     p = doc.add_paragraph(); pPr = p._p.get_or_add_pPr()
     pBdr = OxmlElement("w:pBdr"); btm = OxmlElement("w:bottom")
     btm.set(qn("w:val"),"single"); btm.set(qn("w:sz"),sz)
@@ -61,24 +77,37 @@ def _sp(doc, pts=4):
     p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(pts)
 
 def _h1(doc, numero, texto):
+    # Padrão BK: título principal em preto, negrito, sublinhado (via
+    # sublinhado nativo do Word, não linha decorativa separada) e
+    # caixa-alta — igual ao estilo "1. Título BK principal" do documento
+    # padrão (Arial 12pt, negrito, sublinhado, w:caps).
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(14); p.paragraph_format.space_after = Pt(4)
-    run = p.add_run(f"{numero}  {texto.upper()}")
-    run.bold = True; run.font.size = Pt(13); run.font.color.rgb = RGBColor.from_string(_C_AZUL_ESC)
-    _hline(doc, color=_C_AZUL_ESC, sz="8", before=0, after=6)
+    p.paragraph_format.space_before = Pt(14); p.paragraph_format.space_after = Pt(6)
+    run = p.add_run(f"{numero}. {texto.upper()}")
+    run.bold = True; run.underline = True
+    run.font.size = Pt(12); run.font.color.rgb = RGBColor.from_string(_C_PRETO)
 
 def _h2(doc, numero, texto):
+    # Padrão BK: subtítulo — mesmo peso/tamanho do título principal, sem
+    # caixa-alta (estilo "1.1. Subtítulo BK").
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(8); p.paragraph_format.space_after = Pt(2)
-    run = p.add_run(f"{numero}  {texto}")
-    run.bold = True; run.font.size = Pt(11); run.font.color.rgb = RGBColor.from_string(_C_AZUL_MED)
+    p.paragraph_format.space_before = Pt(10); p.paragraph_format.space_after = Pt(4)
+    run = p.add_run(f"{numero}. {texto}")
+    run.bold = True; run.underline = True
+    run.font.size = Pt(12); run.font.color.rgb = RGBColor.from_string(_C_PRETO)
 
-def _body(doc, texto, size=10, bold=False, italic=False, before=1, after=3, indent=0):
+def _body(doc, texto, size=11, bold=False, italic=False, before=1, after=6, indent=0):
+    # Padrão BK: corpo de texto em preto (Arial, herdado do estilo Normal
+    # do documento — ver gerar_relatorio_protecao). Tamanho 11pt como
+    # compromisso entre a fidelidade ao padrão (12pt) e a extensão já
+    # elevada deste relatório técnico (muitas tabelas/memórias de cálculo);
+    # cor, negrito/itálico e ausência de linha decorativa seguem o padrão
+    # à risca.
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(before); p.paragraph_format.space_after = Pt(after)
     if indent: p.paragraph_format.left_indent = Cm(indent)
     run = p.add_run(texto); run.bold = bold; run.italic = italic
-    run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(_C_CINZA)
+    run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(_C_PRETO)
     return p
 
 def _nota(doc, texto):
@@ -86,9 +115,9 @@ def _nota(doc, texto):
     p.paragraph_format.space_before = Pt(2); p.paragraph_format.space_after = Pt(4)
     p.paragraph_format.left_indent = Cm(0.5)
     r1 = p.add_run("NOTA: "); r1.bold = True; r1.font.size = Pt(9)
-    r1.font.color.rgb = RGBColor.from_string(_C_AZUL_MED)
+    r1.font.color.rgb = RGBColor.from_string(_C_PRETO)
     r2 = p.add_run(texto); r2.italic = True; r2.font.size = Pt(9)
-    r2.font.color.rgb = RGBColor.from_string(_C_CINZA)
+    r2.font.color.rgb = RGBColor.from_string(_C_PRETO)
 
 def _ok_str(ok): return "APROVADO" if ok else "REPROVADO"
 
@@ -216,6 +245,9 @@ def EQ_ICC2E_FASE():
         '</m:den></m:f></m:oMath>')
 
 def _tbl(doc, headers, rows, widths=None, note="", hbg=_C_AZUL_MED):
+    # Padrão BK: cabeçalho de tabela em cinza claro (D9D9D9) com texto PRETO
+    # em negrito (não branco), bordas pretas, sem zebra nas linhas de corpo
+    # (todas brancas) — Arial 9pt, igual às tabelas do documento padrão.
     n = len(headers)
     if not widths: widths = [Cm(16.0/n)]*n
     tbl = doc.add_table(rows=1, cols=n)
@@ -223,77 +255,237 @@ def _tbl(doc, headers, rows, widths=None, note="", hbg=_C_AZUL_MED):
     hrow = tbl.rows[0]
     for i,h in enumerate(headers):
         cell = hrow.cells[i]; _set_cell_bg(cell,hbg)
-        _set_cell_border(cell,color="FFFFFF",sz="2")
-        _cell_write(cell,h,bold=True,size=9,color=_C_BRANCO,center=True); cell.width=widths[i]
+        _set_cell_border(cell,color="000000",sz="4")
+        _cell_write(cell,h,bold=True,size=9,color=_C_PRETO,center=True); cell.width=widths[i]
     for ri,row in enumerate(rows):
-        drow = tbl.add_row(); bg = _C_CINZA2 if ri%2==1 else _C_BRANCO
+        drow = tbl.add_row()
         for ci,val in enumerate(row):
-            cell = drow.cells[ci]; _set_cell_bg(cell,bg)
-            _set_cell_border(cell,color="CCCCCC",sz="2")
-            _cell_write(cell,str(val),size=9,center=(ci>0)); cell.width=widths[ci]
+            cell = drow.cells[ci]; _set_cell_bg(cell,_C_BRANCO)
+            _set_cell_border(cell,color="000000",sz="4")
+            _cell_write(cell,str(val),size=9,color=_C_PRETO,center=(ci>0)); cell.width=widths[ci]
     if note: _nota(doc,note)
     _sp(doc,4)
 
-def _setup_hf(doc, projeto, doc_code, rev="00"):
+# ─────────────────────────────────────────────────────────────────────────
+# Cabeçalho/rodapé e capa — reformulados em 2026-09 para reproduzir
+# EXATAMENTE a diagramação do "DOCUMENTO PADRÃO BK.docx" (padrão de
+# identidade visual de documentos técnicos da BARABACH & KNOPP ENGENHARIA E
+# TECNOLOGIA fornecido pelo cliente), mantendo TODO o conteúdo/dados já
+# existentes no relatório (campos de study_info, seções 1-10, tabelas,
+# equações nativas do Word) e sem alterar em nada as equações OMML
+# (_omml_block/EQ_*), que permanecem exatamente como já implementadas.
+#
+# Estrutura replicada do padrão (conferida por engenharia reversa do XML
+# OOXML do documento anexado pelo cliente):
+#   - Seção 1 (capa): SEM cabeçalho/rodapé (em branco), com margens
+#     3,0/2,0/3,0/2,0 cm, contendo o "quadro" de identificação do
+#     documento (caixa de notas, histórico de revisão, logos, quadro de
+#     assinatura Data/Proj./Verif./Aprov., título e rodapé Nº DOC/FOLHA/REV).
+#   - Seção 2 (corpo, a partir da Seção 1 do relatório): margens
+#     3,5/2,0/3,0/2,0 cm; cabeçalho corrido com logo BK + razão social/CNPJ
+#     + logo do cliente, e uma segunda linha "Código | Revisão | Documento |
+#     Aprovação | Pag." sombreada em azul claro (D9E2F3); rodapé com a
+#     linha "APROVADO", o aviso de propriedade/reprodução e uma tabela de
+#     contato (site/e-mail/telefone/LinkedIn) sombreada em azul claro
+#     (DEEAF6) — cores e textos idênticos ao padrão fornecido.
+#
+# PREMISSA EXPLÍCITA (não solicitada em detalhe, adotada por não haver como
+# obter o dado sem inventá-lo): o padrão fornecido traz uma logomarca do
+# CLIENTE (ex.: "Grupo Energisa") ao lado da logo BK, pois é específico de
+# um projeto/cliente. Como o software gera relatórios para clientes/
+# concessionárias variados e não há, hoje, um campo de upload de logo do
+# cliente por projeto/estudo, essa célula é deixada EM BRANCO (sem logo),
+# preservando a mesma geometria/proporções do quadro do padrão. Caso deseje
+# um campo de logo do cliente por projeto, é necessária uma nova feature
+# (upload + armazenamento do arquivo) — não implementada aqui por não ter
+# sido pedida e por evitar inventar um dado visual que não existe no
+# cadastro atual do software.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _add_header_footer_picture(paragraph, path, width_cm):
+    run = paragraph.add_run()
+    if path and os.path.isfile(path):
+        run.add_picture(path, width=Cm(width_cm))
+    return run
+
+def _setup_capa_section(doc):
+    """Seção 1 (capa): geometria do padrão BK, cabeçalho/rodapé em branco."""
     section = doc.sections[0]
     section.page_width=Cm(21.0); section.page_height=Cm(29.7)
-    section.top_margin=Cm(2.5); section.bottom_margin=Cm(2.0)
+    section.top_margin=Cm(3.0); section.bottom_margin=Cm(2.0)
     section.left_margin=Cm(3.0); section.right_margin=Cm(2.0)
+    section.header.is_linked_to_previous = False
+    section.footer.is_linked_to_previous = False
+    return section
+
+def _setup_running_header_footer(section, doc_code, rev, documento_titulo, aprovador):
+    """Seção 2+ (corpo do relatório): cabeçalho/rodapé corridos, réplica
+    exata (texto, cores, fontes) do cabeçalho/rodapé do documento padrão
+    BK (tabelas header4.xml/footer4.xml do "DOCUMENTO PADRÃO BK.docx")."""
+    section.page_width=Cm(21.0); section.page_height=Cm(29.7)
+    section.top_margin=Cm(3.5); section.bottom_margin=Cm(2.0)
+    section.left_margin=Cm(3.0); section.right_margin=Cm(2.0)
+    section.header_distance=Cm(1.28); section.footer_distance=Cm(2.27)
+
+    # ---------- Cabeçalho ----------
     hdr = section.header; hdr.is_linked_to_previous = False
-    hp = hdr.paragraphs[0]; hp.clear(); hp.alignment=WD_ALIGN_PARAGRAPH.RIGHT
-    r1 = hp.add_run("BK ENGENHARIA E TECNOLOGIA  |  ")
-    r1.bold=True; r1.font.size=Pt(8); r1.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
-    r2 = hp.add_run(f"{doc_code}  Rev. {rev}")
-    r2.font.size=Pt(8); r2.font.color.rgb=RGBColor.from_string(_C_CINZA)
-    pPr=hp._p.get_or_add_pPr(); pBdr=OxmlElement("w:pBdr"); btm=OxmlElement("w:bottom")
-    btm.set(qn("w:val"),"single"); btm.set(qn("w:sz"),"4")
-    btm.set(qn("w:space"),"1"); btm.set(qn("w:color"),_C_AZUL_MED)
-    pBdr.append(btm); pPr.append(pBdr)
-    ftr=section.footer; ftr.is_linked_to_previous=False
-    fp=ftr.paragraphs[0]; fp.clear(); fp.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    r3=fp.add_run(f"{projeto}  |  Estudo de Protecao  |  Pg. ")
-    r3.font.size=Pt(8); r3.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    for extra in list(hdr.paragraphs[1:]): extra._p.getparent().remove(extra._p)
+    hdr.paragraphs[0].text = ""
+    w1,w2,w3 = Cm(4.13), Cm(8.32), Cm(3.55)
+    htbl = hdr.add_table(rows=3, cols=5, width=Cm(16.0))
+    htbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for row in htbl.rows:
+        for cell in row.cells: _set_cell_border(cell,color="000000",sz="4")
+    # linha 1: logo BK | razao social/CNPJ (mesclado) | logo cliente (mesclado, em branco)
+    r0 = htbl.rows[0]
+    c_logo = r0.cells[0]; c_logo.width = w1
+    c_logo.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    pl = c_logo.paragraphs[0]; pl.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _add_header_footer_picture(pl, _BK_LOGO_HEADER, 3.4)
+    c_nome = r0.cells[1].merge(r0.cells[2]); c_nome.width = w2
+    c_nome.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    pn1 = c_nome.paragraphs[0]; pn1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    rn1 = pn1.add_run("BARABACH & KNOPP ENGENHARIA E TECNOLOGIA")
+    rn1.bold=True; rn1.font.size=Pt(10); rn1.font.color.rgb=RGBColor.from_string(_C_PRETO); rn1.font.name="Calibri"
+    pn2 = c_nome.add_paragraph(); pn2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    rn2 = pn2.add_run("CNPJ: 41.175.212/0001-97")
+    rn2.bold=True; rn2.font.size=Pt(10); rn2.font.color.rgb=RGBColor.from_string(_C_PRETO); rn2.font.name="Calibri"
+    c_cli = r0.cells[3].merge(r0.cells[4]); c_cli.width = w3
+    c_cli.vertical_alignment = WD_ALIGN_VERTICAL.CENTER  # logo do cliente: em branco (ver nota acima)
+    # linha 2: rótulos (sombreado azul claro do padrão)
+    labels = ["Código","Revisão","Documento","Aprovação","Pag."]
+    r1 = htbl.rows[1]
+    for i,lab in enumerate(labels):
+        cell = r1.cells[i]; _set_cell_bg(cell,_C_HDR_SHADE)
+        _cell_write(cell,lab,bold=True,size=9,color=_C_PRETO,center=True)
+        for run in cell.paragraphs[0].runs: run.font.name="Calibri"
+    # linha 3: valores (itálico, igual ao padrão)
+    r2 = htbl.rows[2]
+    vals = [doc_code, rev, documento_titulo, aprovador]
+    for i,val in enumerate(vals):
+        _cell_write(r2.cells[i], val, italic=True, size=9, color=_C_PRETO, center=True)
+        for run in r2.cells[i].paragraphs[0].runs: run.font.name="Calibri"
+    pg_p = r2.cells[4].paragraphs[0]; pg_p.clear(); pg_p.alignment=WD_ALIGN_PARAGRAPH.CENTER
     fld=OxmlElement("w:fldChar"); fld.set(qn("w:fldCharType"),"begin")
     ins=OxmlElement("w:instrText"); ins.text="PAGE"; ins.set(qn("xml:space"),"preserve")
     fld2=OxmlElement("w:fldChar"); fld2.set(qn("w:fldCharType"),"end")
-    rp=fp.add_run(); rp.font.size=Pt(8); rp.font.color.rgb=RGBColor.from_string(_C_CINZA)
+    rp=pg_p.add_run(); rp.italic=True; rp.font.size=Pt(9); rp.font.color.rgb=RGBColor.from_string(_C_PRETO); rp.font.name="Calibri"
     rp._r.append(fld); rp._r.append(ins); rp._r.append(fld2)
 
-def _capa(doc, info):
-    tbl=doc.add_table(rows=1,cols=1); tbl.alignment=WD_TABLE_ALIGNMENT.CENTER
-    cell=tbl.rows[0].cells[0]; cell.width=Cm(16.0)
-    _set_cell_bg(cell,_C_AZUL_ESC); _set_cell_border(cell,color=_C_AZUL_ESC)
-    cp=cell.paragraphs[0]; cp.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    cp.paragraph_format.space_before=Pt(12); cp.paragraph_format.space_after=Pt(12)
-    r=cp.add_run("BK ENGENHARIA E TECNOLOGIA")
-    r.bold=True; r.font.size=Pt(14); r.font.color.rgb=RGBColor.from_string(_C_BRANCO)
-    _sp(doc,28)
-    pt=doc.add_paragraph(); pt.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    rt=pt.add_run("ESTUDO DE PROTECAO E COORDENACAO")
-    rt.bold=True; rt.font.size=Pt(20); rt.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
-    pt2=doc.add_paragraph(); pt2.alignment=WD_ALIGN_PARAGRAPH.CENTER
-    rt2=pt2.add_run("DE SISTEMAS ELETRICOS DE POTENCIA")
-    rt2.bold=True; rt2.font.size=Pt(20); rt2.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
-    _hline(doc,color=_C_AZUL_MED,sz="12",before=8,after=8)
-    campos=[
-        ("Projeto",info.get("projeto","---")),("Cliente",info.get("cliente","---")),
-        ("Local / Unidade",info.get("local","---")),
-        ("Codigo do Doc.",info.get("doc_code","BK-EP-001")),
-        ("Revisao",info.get("revisao","00")),
-        ("Data de Emissao",info.get("data",datetime.date.today().strftime("%d/%m/%Y"))),
-        ("Elaborado por",info.get("elaborado","Engenharia BK")),
-        ("Verificado por",info.get("verificado","---")),
-        ("Aprovado por",info.get("aprovado","---")),
-        ("Concessionaria",info.get("concessionaria","---")),
-        ("Tensao de Entrega",info.get("tensao_entrega","---")),
-        ("Classificacao","ESTUDO TECNICO -- USO EXTERNO"),
+    # ---------- Rodapé ----------
+    ftr = section.footer; ftr.is_linked_to_previous = False
+    for extra in list(ftr.paragraphs[1:]): extra._p.getparent().remove(extra._p)
+    p_apr = ftr.paragraphs[0]; p_apr.clear(); p_apr.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pPr=p_apr._p.get_or_add_pPr(); pBdr=OxmlElement("w:pBdr"); top=OxmlElement("w:top")
+    top.set(qn("w:val"),"single"); top.set(qn("w:sz"),"4"); top.set(qn("w:space"),"1"); top.set(qn("w:color"),"000000")
+    pBdr.append(top); pPr.append(pBdr)
+    r_apr = p_apr.add_run("APROVADO"); r_apr.bold=True; r_apr.font.size=Pt(9); r_apr.font.color.rgb=RGBColor.from_string(_C_PRETO); r_apr.font.name="Calibri"
+    p_disc = ftr.add_paragraph(); p_disc.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_disc.paragraph_format.space_before = Pt(2)
+    r_disc = p_disc.add_run(
+        "Este documento é de propriedade da BARABACH & KNOPP ENGENHARIA E TECNOLOGIA, não é permitida a sua "
+        "reprodução ou comunicação a terceiros sem prévia autorização. Em caso de impressão este documento tem "
+        "validade como “cópia controlada” somente se houver a assinatura do Responsável designado para "
+        "controlar os documentos (Obras ou Sede).")
+    r_disc.bold=True; r_disc.font.size=Pt(8); r_disc.font.color.rgb=RGBColor.from_string(_C_PRETO); r_disc.font.name="Arial Narrow"
+    ctbl = ftr.add_table(rows=2, cols=2, width=Cm(16.0)); ctbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    contatos = [
+        ("Site: ", "www.bk-engenharia.com", "Cel.: (48) 98871-3776"),
+        ("E-mail: ", "marcio@bk-engenharia.com", "https://www.linkedin.com/company/71943849/admin/feed/posts/"),
     ]
-    _tbl(doc,["CAMPO","INFORMACAO"],campos,widths=[Cm(5.5),Cm(10.5)],hbg=_C_AZUL_ESC)
-    _sp(doc,10)
+    for ri,(rotulo,valor,valor2) in enumerate(contatos):
+        c1 = ctbl.rows[ri].cells[0]; _set_cell_bg(c1,_C_FTR_SHADE)
+        p1=c1.paragraphs[0]; p1.alignment=WD_ALIGN_PARAGRAPH.CENTER
+        rr1=p1.add_run(f"{rotulo}{valor}"); rr1.bold=True; rr1.font.size=Pt(9); rr1.font.color.rgb=RGBColor.from_string(_C_PRETO); rr1.font.name="Arial Narrow"
+        c2 = ctbl.rows[ri].cells[1]; _set_cell_bg(c2,_C_FTR_SHADE)
+        p2=c2.paragraphs[0]; p2.alignment=WD_ALIGN_PARAGRAPH.CENTER
+        rr2=p2.add_run(valor2); rr2.bold=True; rr2.font.size=Pt(9); rr2.font.color.rgb=RGBColor.from_string(_C_PRETO); rr2.font.name="Arial Narrow"
+
+def _quadro_row(tbl_parent_doc, header_cell_specs, values, widths, bold_vals=False, shade=None, italic=False):
+    """Adiciona ao documento uma tabela de 1 linha representando uma faixa
+    do quadro de identificação da capa (padrão BK)."""
+    n=len(values)
+    t=tbl_parent_doc.add_table(rows=1,cols=n); t.alignment=WD_TABLE_ALIGNMENT.CENTER
+    row=t.rows[0]
+    for i,val in enumerate(values):
+        cell=row.cells[i]; cell.width=widths[i]
+        _set_cell_border(cell,color="000000",sz="4")
+        if shade: _set_cell_bg(cell,shade)
+        _cell_write(cell,str(val),bold=bold_vals,italic=italic,size=9,color=_C_PRETO,center=True)
+    return t
+
+def _capa(doc, info):
+    """Capa no padrão BK: caixa de notas, histórico de revisão, logos,
+    quadro de assinatura (Data/Proj./Verif./Aprov.) e título/identificação
+    do documento — réplica fiel do "quadro" do documento padrão fornecido,
+    preenchido com os mesmos dados já usados pela capa anterior (nenhum
+    campo novo inventado)."""
+    projeto=info.get("projeto","---")
+    largura_total=Cm(16.0)
+    col_w6=[Cm(1.6),Cm(6.0),Cm(2.3),Cm(2.0),Cm(2.0),Cm(2.1)]  # REV|MOTIVO|DATA|PROJ|VERIF|APROV
+
+    # 1) Caixa de NOTAS (área livre para anotações, como no padrão)
+    t_notas=doc.add_table(rows=1,cols=1); t_notas.alignment=WD_TABLE_ALIGNMENT.CENTER
+    c_notas=t_notas.rows[0].cells[0]; c_notas.width=largura_total
+    _set_cell_border(c_notas,color="000000",sz="4")
+    c_notas.vertical_alignment=WD_ALIGN_VERTICAL.TOP
+    p0=c_notas.paragraphs[0]
+    r0=p0.add_run("NOTAS:"); r0.bold=True; r0.font.size=Pt(9); r0.font.color.rgb=RGBColor.from_string(_C_PRETO)
+    for _ in range(6): c_notas.add_paragraph()
+
+    # 2) Histórico de revisão — linha de dados (Rev.0) seguida do cabeçalho
+    #    de colunas, na mesma ordem visual do padrão fornecido.
+    _quadro_row(doc, None, ["0","EMISSÃO INICIAL",info.get("data",datetime.date.today().strftime("%d/%m/%Y")),
+                             info.get("elaborado","-") or "-", info.get("verificado","-") or "-",
+                             info.get("aprovado","") or ""], col_w6)
+    _quadro_row(doc, None, ["REV.","MOTIVO DA REVISÃO","DATA","PROJ.","VERIF.","APROV."], col_w6, bold_vals=True)
+
+    # 3) Logos — BK (esquerda) e cliente (direita, em branco — ver nota no
+    #    topo do módulo sobre a ausência de logo de cliente cadastrado)
+    t_logo=doc.add_table(rows=1,cols=2); t_logo.alignment=WD_TABLE_ALIGNMENT.CENTER
+    c1=t_logo.rows[0].cells[0]; c1.width=Cm(9.0); _set_cell_border(c1,color="000000",sz="4")
+    c1.vertical_alignment=WD_ALIGN_VERTICAL.CENTER
+    p1=c1.paragraphs[0]; p1.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    _add_header_footer_picture(p1, _BK_LOGO_CAPA, 7.0)
+    c2=t_logo.rows[0].cells[1]; c2.width=Cm(7.0); _set_cell_border(c2,color="000000",sz="4")
+    c2.vertical_alignment=WD_ALIGN_VERTICAL.CENTER  # logo do cliente — em branco
+
+    # 4) Quadro de assinatura — lado BK (preenchido) | lado Cliente (em
+    #    branco, aguardando aprovação formal do destinatário do estudo)
+    col_w4=[Cm(2.0),Cm(6.0),Cm(2.0),Cm(6.0)]
+    linhas_assin=[
+        ("DATA:", info.get("data",datetime.date.today().strftime("%d/%m/%Y")), "DATA:", ""),
+        ("PROJ.:", info.get("elaborado","-") or "-", "VISTO:", ""),
+        ("VERIF.:", info.get("verificado","-") or "-", "VISTO:", ""),
+        ("APROV.:", info.get("aprovado","") or "", "APROV.:", ""),
+    ]
+    for rotulo1,val1,rotulo2,val2 in linhas_assin:
+        _quadro_row(doc, None, [rotulo1,val1,rotulo2,val2], col_w4, bold_vals=False)
+
+    # 5) Título do documento (3 linhas, negrito, centralizado)
+    titulo_linhas=[
+        projeto,
+        "ESTUDO DE PROTEÇÃO E CURTO-CIRCUITO",
+        "SISTEMAS ELÉTRICOS DE POTÊNCIA — IEC 60909:2016",
+    ]
+    t_tit=doc.add_table(rows=len(titulo_linhas),cols=1); t_tit.alignment=WD_TABLE_ALIGNMENT.CENTER
+    for i,linha in enumerate(titulo_linhas):
+        cell=t_tit.rows[i].cells[0]; cell.width=largura_total
+        _set_cell_border(cell,color="000000",sz="4")
+        p=cell.paragraphs[0]; p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before=Pt(4); p.paragraph_format.space_after=Pt(4)
+        r=p.add_run(linha); r.bold=True; r.font.size=Pt(13 if i==0 else 12)
+        r.font.color.rgb=RGBColor.from_string(_C_PRETO)
+
+    # 6) Rodapé do quadro — Nº DOC / FOLHA / REV.
+    col_wd=[Cm(2.0),Cm(6.0),Cm(2.0),Cm(3.0),Cm(1.5),Cm(1.5)]
+    _quadro_row(doc, None, ["Nº DOC:",info.get("doc_code","BK-EP-001"),"FOLHA:","","REV.:",info.get("revisao","00")],
+                col_wd, italic=True)
+
+    _sp(doc,6)
     pa=doc.add_paragraph(); pa.alignment=WD_ALIGN_PARAGRAPH.CENTER
     ra=pa.add_run("Documento elaborado em conformidade com IEC 60909:2016 | IEC 61869-2 | IEC 62271-100 | IEC 60255")
-    ra.italic=True; ra.font.size=Pt(9); ra.font.color.rgb=RGBColor.from_string(_C_CINZA)
-    doc.add_page_break()
+    ra.italic=True; ra.font.size=Pt(9); ra.font.color.rgb=RGBColor.from_string(_C_PRETO)
 
 def _sec1(doc, info):
     _h1(doc,"1","OBJETO E ESCOPO")
@@ -646,7 +838,7 @@ def _sec5(doc, sc_results, system=None):
         ps=doc.add_paragraph(); ps.paragraph_format.space_before=Pt(8)
         ps.paragraph_format.space_after=Pt(2); ps.paragraph_format.left_indent=Cm(0.3)
         rs=ps.add_run(f"Barra {bn}  ({ec})")
-        rs.bold=True; rs.font.size=Pt(10); rs.font.color.rgb=RGBColor.from_string(_C_AZUL_MED)
+        rs.bold=True; rs.font.size=Pt(10); rs.font.color.rgb=RGBColor.from_string(_C_PRETO)
         z2m=abs(z2_val)
         icc2e=getattr(r,"icc_2ph_ground_ka",0.0) or 0.0
         mem=[
@@ -1203,7 +1395,7 @@ def _sec9(doc, sc_results=None, relay_results=None, ct_results=None, vt_results=
             p=doc.add_paragraph(style="List Bullet")
             p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(2)
             p.paragraph_format.left_indent=Cm(0.8)
-            r1=p.add_run(f"{tipo} {cod}: "); r1.bold=True; r1.font.size=Pt(10); r1.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+            r1=p.add_run(f"{tipo} {cod}: "); r1.bold=True; r1.font.size=Pt(10); r1.font.color.rgb=RGBColor.from_string(_C_PRETO)
             r2=p.add_run(motivo); r2.font.size=Pt(10); r2.font.color.rgb=RGBColor.from_string(_C_CINZA)
         _sp(doc,4)
 
@@ -1277,10 +1469,10 @@ def _sec10(doc, info):
         ("Data da Emissao",info.get("data",datetime.date.today().strftime("%d/%m/%Y"))),
         ("Revisao",info.get("revisao","00")),
     ],widths=[Cm(5.5),Cm(10.5)],hbg=_C_AZUL_ESC)
-    _sp(doc,20); _hline(doc,color=_C_AZUL_ESC,sz="6",before=40,after=4)
+    _sp(doc,20); _hline(doc,color=_C_PRETO,sz="6",before=40,after=4)
     p_nome=doc.add_paragraph(); p_nome.alignment=WD_ALIGN_PARAGRAPH.CENTER
     r=p_nome.add_run(info.get("engenheiro","Engenheiro Responsavel"))
-    r.bold=True; r.font.size=Pt(11); r.font.color.rgb=RGBColor.from_string(_C_AZUL_ESC)
+    r.bold=True; r.font.size=Pt(11); r.font.color.rgb=RGBColor.from_string(_C_PRETO)
     p_crea=doc.add_paragraph(); p_crea.alignment=WD_ALIGN_PARAGRAPH.CENTER
     rc=p_crea.add_run(f"{info.get('crea','CREA-XX / XXXXXX-D')}  --  Engenheiro Eletricista")
     rc.font.size=Pt(10); rc.font.color.rgb=RGBColor.from_string(_C_CINZA)
@@ -1304,12 +1496,20 @@ def gerar_relatorio_protecao(
     proj=study_info.get("projeto","Estudo de Protecao")
     code=study_info.get("doc_code","BK-EP-001")
     rev=study_info.get("revisao","00")
+    aprovador=study_info.get("aprovado") or "---"
+    documento_titulo=f"Estudo de Proteção e Curto-Circuito — {proj}"
     c_factor=getattr(system,"voltage_factor_c",study_info.get("voltage_factor_c",1.10))
-    doc.styles["Normal"].font.name="Calibri"
-    doc.styles["Normal"].font.size=Pt(10)
-    doc.styles["Normal"].font.color.rgb=RGBColor.from_string(_C_CINZA)
-    _setup_hf(doc,proj,code,rev)
+    # Padrão BK: fonte Arial em todo o corpo do documento (o padrão fornecido
+    # usa Arial no corpo/tabelas e Calibri apenas no cabeçalho/rodapé
+    # corridos, que definem sua própria fonte por run em
+    # _setup_running_header_footer — ver bloco de comentário acima).
+    doc.styles["Normal"].font.name="Arial"
+    doc.styles["Normal"].font.size=Pt(11)
+    doc.styles["Normal"].font.color.rgb=RGBColor.from_string(_C_PRETO)
+    _setup_capa_section(doc)
     _capa(doc,study_info)
+    novasecao = doc.add_section(WD_SECTION.NEW_PAGE)
+    _setup_running_header_footer(novasecao, code, rev, documento_titulo, aprovador)
     _sec1(doc,study_info)
     _sec2(doc)
     _sec3(doc,c_factor)
