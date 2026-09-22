@@ -344,6 +344,7 @@ function equipPage() {
       z_source_r0: {{ study.z_source_r0_ohm or 0 }},
       z_source_x0: {{ study.z_source_x0_ohm or 0 }},
       neutral_grounding: {{ (study.neutral_grounding or 'isolado') | tojson }},
+      rho_solo_ohm_m: {{ study.rho_solo_ohm_m or 100.0 }},
     },
     tab: 'tc_tp',
     calculating: false,
@@ -428,6 +429,7 @@ function equipPage() {
           conductor_temp_c: this.studyParams.conductor_temp_c,
           underground_group_factor: 1.0,
           neutral_grounding: this.studyParams.neutral_grounding,
+          rho_solo_ohm_m: parseFloat(this.studyParams.rho_solo_ohm_m) || 100.0,
         },
         elements: activeElems.map((e, i) => ({
           code: e.code, element_type: e.element_type,

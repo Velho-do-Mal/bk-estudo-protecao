@@ -105,6 +105,13 @@ class NetworkElement:
     x1_ohm_km: float = 0.0    # X de sequência positiva [Ω/km]
     r0_ohm_km: float = 0.0    # R de sequência zero [Ω/km] — 0 = usar estimativa
     x0_ohm_km: float = 0.0    # X de sequência zero [Ω/km] — 0 = usar estimativa
+    # Resistividade do solo [Ω·m] — usada apenas quando r0/x0 NÃO são
+    # informados, para corrigir a estimativa de Z0 de linha aérea pelo termo
+    # de retorno pela terra de Carson (ver _carson_earth_return_correction).
+    # Vem de Study.rho_solo_ohm_m (broadcast por elemento no adaptador
+    # IEC60909Calculator._elem_seq). Default 100 Ω·m = mesma referência já
+    # assumida implicitamente no catálogo de condutores (cable_database.py).
+    rho_solo_ohm_m: float = 100.0
 
     # Transformador
     trafo_kva: float = 0.0
@@ -172,6 +179,77 @@ def _calc_kappa(xr: float) -> float:
     return round(min(1.02 + 0.98 * math.exp(-3.0 / xr), 2.0), 4)
 
 
+def _carson_earth_return_correction(rho_solo_ohm_m: float) -> tuple[float, float]:
+    """
+    Correção de sequência zero por retorno pela terra — Equações de Carson
+    (1926), forma "Modified Carson" (1º termo de P, 2 primeiros termos de Q —
+    mesma aproximação usada em Kersting, "Distribution System Modeling and
+    Analysis", cap. 4, e verificada nesta implementação contra o código-fonte
+    aberto opusonesolutions/carsons, https://github.com/opusonesolutions/carsons,
+    que também usa ρ_solo=100 Ω·m como referência default quando não medido).
+
+    Retorna (delta_r0_ohm_km, delta_x0_shift_ohm_km):
+
+    delta_r0_ohm_km — contribuição de RESISTÊNCIA de retorno pela terra à
+        sequência zero de um circuito trifásico equilibrado (Z0 = Zs + 2×Zm,
+        Fortescue), já multiplicada pelo fator 3 (Zs e Zm recebem a MESMA
+        correção de Carson no termo de 1ª ordem). Esta parcela depende SÓ da
+        frequência — NÃO depende de ρ_solo (resultado conhecido das equações
+        de Carson: o termo resistivo de retorno pela terra é função apenas de
+        ω, não de ρ). Valor absoluto, substitui a estimativa anterior
+        "R0≈3,5×R1" (heurística multiplicativa sem base física — o termo de
+        retorno pela terra de Carson é um valor ADITIVO fixo, não escala com
+        a resistência do próprio condutor).
+
+    delta_x0_shift_ohm_km — variação da REATÂNCIA de retorno pela terra em
+        relação à referência ρ_solo=100 Ω·m já embutida nas estimativas
+        existentes deste app (catálogo de condutores e a antiga heurística
+        "X0≈3×X1"/"X0≈3,5×X1"). É zero quando ρ_solo=100. Esta é a única
+        parcela que depende de ρ_solo.
+
+    IMPORTANTE — limitação assumida: o termo geométrico absoluto de Carson
+    (que depende da altura do condutor sobre o solo e do GMR/espaçamento
+    entre fases) NÃO é recalculado aqui, porque este app não modela geometria
+    de estrutura por trecho de linha. Em vez disso, aplica-se rigorosamente
+    apenas a PARTE do termo de Carson que é matematicamente independente da
+    geometria — a dependência de ρ_solo entra exclusivamente como
+    +0,25×ln(ρ) no termo de reatância (self e mútuo recebem o MESMO
+    coeficiente, então a diferença entre dois valores de ρ não depende da
+    geometria) — como uma correção sobre a estimativa geométrica de
+    referência (ρ=100) já assumida no app. Isso é rigoroso para a VARIAÇÃO
+    por ρ_solo; não é uma dedução completa e independente de Z0 a partir de
+    geometria real de torre — isso exigiria modelar altura/GMR/espaçamento
+    por trecho, o que está fora do escopo desta correção.
+
+    Frequência fixa em FREQ_HZ=60Hz (mesma premissa implícita já usada em
+    todo o resto deste motor — não há campo de frequência por estudo
+    propagado ao motor de curto-circuito atualmente).
+
+    Derivação (unidades SI, convertido para Ω/km ao final):
+        μ0 = 4π×10⁻⁷ H/m               (permeabilidade do vácuo)
+        ω  = 2π×FREQ_HZ
+        ΔR_carson = μ0×ω/8                                    [Ω/m]
+        ΔX_carson(ρ) = (μ0×ω/π)×0,25×ln(ρ) + termo_geométrico [Ω/m]
+    Para Z0 = Zs + 2×Zm:
+        ΔR0            = 3 × ΔR_carson                (não depende de ρ)
+        ΔX0(ρ)-ΔX0(ρ0) = 3 × (μ0×ω/π) × 0,25 × ln(ρ/ρ0)
+    """
+    RHO_REF_OHM_M = 100.0  # referência já embutida nas estimativas existentes
+
+    mu0 = 4.0 * math.pi * 1e-7          # H/m
+    omega = 2.0 * math.pi * FREQ_HZ     # rad/s
+
+    delta_r_carson_ohm_m = mu0 * omega / 8.0
+    delta_r0_ohm_km = 3.0 * delta_r_carson_ohm_m * 1000.0
+
+    ln_rho_coeff_ohm_m = (mu0 * omega / math.pi) * 0.25
+    delta_x0_shift_ohm_km = (
+        3.0 * ln_rho_coeff_ohm_m * math.log(rho_solo_ohm_m / RHO_REF_OHM_M) * 1000.0
+    )
+
+    return delta_r0_ohm_km, delta_x0_shift_ohm_km
+
+
 def _seq_linha(elem: NetworkElement) -> SequenceImpedances:
     """
     Linha aérea ou cabo subterrâneo.
@@ -180,9 +258,13 @@ def _seq_linha(elem: NetworkElement) -> SequenceImpedances:
     Z0 = (R0 + jX0) × L
 
     Se R0/X0 não informados:
-      - Linha aérea: Z0 ≈ 3,5 × R1 + j × 3 × X1  (aprox. Carson sem contraparte)
-      - Cabo MT:     Z0 ≈ 3,5 × R1 + j × 3,5 × X1 (blindagem)
-    Essas estimativas são conservadoras — usar dados reais quando disponíveis.
+      - Linha aérea: Z0 ≈ [R1 + 3×ΔR_carson] + j×[3×X1 + ΔX0(ρ_solo)]
+        (referência ρ_solo=100Ω·m → recupera exatamente a estimativa anterior
+        em X0; ΔR0 substitui a antiga heurística "3,5×R1", fisicamente
+        incorreta — ver _carson_earth_return_correction). Correção 2026-09.
+      - Cabo MT:     Z0 ≈ 3,5 × R1 + j × 3,5 × X1 (blindagem metálica — NÃO
+        é retorno pela terra, ρ_solo não se aplica; mantido inalterado)
+    Estimativas — usar dados reais (medição ou fabricante) quando disponíveis.
     """
     L = elem.length_km
     z1 = complex(elem.r1_ohm_km * L, elem.x1_ohm_km * L)
@@ -191,10 +273,16 @@ def _seq_linha(elem: NetworkElement) -> SequenceImpedances:
     if elem.r0_ohm_km > 0 or elem.x0_ohm_km > 0:
         z0 = complex(elem.r0_ohm_km * L, elem.x0_ohm_km * L)
     else:
-        # Estimativa conservadora
         is_aerial = elem.element_type in ("linha", "linha_aerea")
-        r0 = 3.5 * elem.r1_ohm_km * L
-        x0 = 3.0 * elem.x1_ohm_km * L if is_aerial else 3.5 * elem.x1_ohm_km * L
+        if is_aerial:
+            delta_r0, delta_x0_shift = _carson_earth_return_correction(elem.rho_solo_ohm_m)
+            r0 = (elem.r1_ohm_km + delta_r0) * L
+            x0 = (3.0 * elem.x1_ohm_km + delta_x0_shift) * L
+        else:
+            # Cabo subterrâneo: retorno pela blindagem metálica, não pela
+            # terra — Carson/ρ_solo não se aplica. Heurística inalterada.
+            r0 = 3.5 * elem.r1_ohm_km * L
+            x0 = 3.5 * elem.x1_ohm_km * L
         z0 = complex(r0, x0)
 
     return SequenceImpedances(z1=z1, z2=z2, z0=z0)
@@ -1118,6 +1206,7 @@ class IEC60909Calculator:
             x1_ohm_km=getattr(elem, 'x1_ohm_km', 0.0) or 0.0,
             r0_ohm_km=getattr(elem, 'r0_ohm_km', None) or 0.0,
             x0_ohm_km=getattr(elem, 'x0_ohm_km', None) or 0.0,
+            rho_solo_ohm_m=getattr(self.system, 'rho_solo_ohm_m', None) or 100.0,
             trafo_kva=getattr(elem, 'trafo_kva', 0.0) or 0.0,
             trafo_z_percent=getattr(elem, 'trafo_z_percent', 0.0) or 0.0,
             trafo_z0_percent=getattr(elem, 'trafo_z0_percent', 0.0) or 0.0,

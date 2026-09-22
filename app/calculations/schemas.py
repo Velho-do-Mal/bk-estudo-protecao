@@ -104,6 +104,14 @@ class SystemInput(BaseModel):
     # correto apenas por coincidência para redes MT isoladas.
     neutral_grounding: str = "isolado"
 
+    # Resistividade do solo [Ω·m] — correção de Carson (retorno pela terra)
+    # do Z0 de linhas aéreas quando R0/X0 não são informados diretamente no
+    # trecho. Ver engine/short_circuit/iec60909.py::_carson_earth_return_correction.
+    # Default 100 Ω·m = referência já assumida implicitamente no catálogo de
+    # condutores (engine/cables/cable_database.py) — preserva o comportamento
+    # anterior quando não houver medição de resistividade do solo do sítio.
+    rho_solo_ohm_m: float = Field(default=100.0, gt=0)
+
 
 class CalculationRequest(BaseModel):
     """Request completo de cálculo de engenharia."""

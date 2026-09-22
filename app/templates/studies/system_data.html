@@ -60,6 +60,10 @@
             </select>
           </div>
           <div class="field">
+            <label>Resistividade do Solo (Ω·m) <span class="hint">— Carson, ABNT NBR 7117</span></label>
+            <input type="number" x-model="form.rho_solo_ohm_m" step="1" min="1" class="input mono" placeholder="100">
+          </div>
+          <div class="field">
             <label>Tipos de Falta</label>
             <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">
               <label class="text-xs" style="display:flex; align-items:center; gap:6px; font-weight:500;">
@@ -82,8 +86,10 @@
       <ul style="margin:6px 0 0; padding-left:18px; line-height:1.7;">
         <li>Fator c<sub>max</sub> = 1,10 conforme IEC 60909-0:2016 Tabela 1 para sistemas ≤ 1 kV e > 1 kV</li>
         <li>Análise de rede radial — metodologia de superposição não implementada nesta versão</li>
-        <li>Impedância de sequência zero de linhas/cabos sem R0/X0 informados: estimativa conservadora de Carson
-          (Z0 &asymp; 3,5&times;R1 + j&times;3&times;X1 para linha aérea; 3,5&times;R1 + j&times;3,5&times;X1 para cabo) —
+        <li>Impedância de sequência zero de linhas/cabos sem R0/X0 informados: linha aérea usa a correção de Carson
+          (retorno pela terra) parametrizada pela Resistividade do Solo acima — Z0 &asymp; [R1 + 3&times;&Delta;R<sub>Carson</sub>(f)]
+          + j&times;[3&times;X1 + &Delta;X0(&rho;<sub>solo</sub>)], referência &rho;<sub>solo</sub>=100&nbsp;&Omega;&middot;m; cabo subterrâneo usa
+          Z0 &asymp; 3,5&times;R1 + j&times;3,5&times;X1 (retorno pela blindagem metálica, não depende de &rho;<sub>solo</sub>) —
           informe R0/X0 reais do condutor sempre que disponíveis, na aba "Rede Elétrica"</li>
         <li>Fonte (concessionária), transformador e gerador: Z2 e Z0 usam aproximação conservadora (Z2=Z0=Z1) apenas
           quando não informados — preencha os campos de Z2/Z0/aterramento nas telas de "Rede Elétrica" para usar
@@ -117,6 +123,7 @@ function systemDataForm() {
       conductor_temp_c: {{ study.conductor_temp_c or 20 }},
       fault_time_s: {{ study.fault_time_s or 0.5 }},
       neutral_grounding: {{ (study.neutral_grounding or 'isolado') | tojson }},
+      rho_solo_ohm_m: {{ study.rho_solo_ohm_m or 100.0 }},
       calc_3ph: true,
       calc_2ph: true,
       calc_1ph: true,

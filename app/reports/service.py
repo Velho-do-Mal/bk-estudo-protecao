@@ -67,6 +67,7 @@ class ReportService:
             conductor_temp_c=study.conductor_temp_c or 20.0,
             underground_group_factor=study.underground_group_factor or 1.0,
             neutral_grounding=study.neutral_grounding or "isolado",
+            rho_solo_ohm_m=getattr(study, "rho_solo_ohm_m", None) or 100.0,
         )
 
     def _build_element_inputs(self, elements: list[NetworkElement], v_base_kv: float) -> list[ElementInput]:

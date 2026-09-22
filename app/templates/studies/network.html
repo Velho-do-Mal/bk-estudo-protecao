@@ -571,6 +571,7 @@ function networkGrid() {
       voltage_factor_c: {{ study.voltage_factor_c or 1.10 }},
       conductor_temp_c: {{ study.conductor_temp_c or 20 }},
       neutral_grounding: {{ (study.neutral_grounding or 'isolado') | tojson }},
+      rho_solo_ohm_m: {{ study.rho_solo_ohm_m or 100.0 }},
     },
 
     source: {
@@ -802,6 +803,7 @@ function networkGrid() {
           conductor_temp_c: this.studyParams.conductor_temp_c,
           underground_group_factor: 1.0,
           neutral_grounding: this.studyParams.neutral_grounding,
+          rho_solo_ohm_m: parseFloat(this.studyParams.rho_solo_ohm_m) || 100.0,
         },
         elements: activeRows.map(r => ({
           code: r.code,

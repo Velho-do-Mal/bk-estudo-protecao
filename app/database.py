@@ -179,6 +179,10 @@ def run_migrations_sync() -> None:
         # 2.2/2.7 abaixo, encontrado ao auditar TODAS as colunas do modelo
         # contra esta lista de migração.
         "ALTER TABLE studies ADD COLUMN IF NOT EXISTS neutral_grounding VARCHAR(20) DEFAULT 'isolado'",
+        # Correção (2026-09, ρ_solo configurável para Carson — ver
+        # engine/short_circuit/iec60909.py::_carson_earth_return_correction).
+        # Coluna nova em app/studies/models.py::Study.
+        "ALTER TABLE studies ADD COLUMN IF NOT EXISTS rho_solo_ohm_m FLOAT DEFAULT 100.0",
         # Z2/Z0 do gerador síncrono (IEC 60909 §3.6.1 Tab.13) — colunas novas
         # em app/studies/models.py::NetworkElement, adicionadas a uma tabela
         # que já existia em produção antes destes campos serem criados.

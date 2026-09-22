@@ -291,6 +291,7 @@ def _build_system_base(s) -> SystemBase:
         conductor_temp_c=s.conductor_temp_c,
         underground_group_factor=s.underground_group_factor,
         neutral_grounding=getattr(s, 'neutral_grounding', 'isolado'),
+        rho_solo_ohm_m=getattr(s, 'rho_solo_ohm_m', None) or 100.0,
     )
 
 

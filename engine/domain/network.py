@@ -61,6 +61,15 @@ class SystemBase:
     # diretamente no service.py, ignorando o regime real do projeto.
     neutral_grounding: str = "isolado"
 
+    # Resistividade do solo [Ω·m] — usada na correção de Carson (retorno pela
+    # terra) do Z0 de linhas aéreas quando R0/X0 não são informados por
+    # trecho (ver engine/short_circuit/iec60909.py::
+    # _carson_earth_return_correction). Default 100 Ω·m = referência já
+    # assumida implicitamente no catálogo de condutores (cable_database.py) —
+    # preserva o comportamento anterior quando não houver medição do sítio
+    # (ABNT NBR 7117 — método de Wenner). Correção 2026-09.
+    rho_solo_ohm_m: float = 100.0
+
     # Fatores de correção IEC 60909
     voltage_factor_c: float = 1.10      # Fator c (Tab.1 IEC 60909): 1,10 máx / 0,95 mín
     k_generator: float = 1.0            # Fator de correção para geradores

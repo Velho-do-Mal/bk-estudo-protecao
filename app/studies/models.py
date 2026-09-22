@@ -71,6 +71,17 @@ class Study(Base):
     # 'isolado' | 'aterrado' | 'petersen'. Ver engine/sizing/vt_sizing.py.
     neutral_grounding: Mapped[Optional[str]] = mapped_column(String(20), default="isolado")
 
+    # Resistividade do solo [Ω·m] — usada na correção de Carson (retorno pela
+    # terra) do Z0 de linhas aéreas quando R0/X0 não são informados
+    # diretamente (ver engine/short_circuit/iec60909.py::_seq_linha() e
+    # _carson_earth_return_correction()). Default 100 Ω·m preserva o
+    # comportamento anterior (valor já assumido implicitamente no catálogo de
+    # condutores, engine/cables/cable_database.py) quando o usuário não tiver
+    # medição de resistividade do solo do sítio (ABNT NBR 7117 — método de
+    # Wenner). Idealmente vem do mesmo levantamento usado no projeto de
+    # malha de aterramento.
+    rho_solo_ohm_m: Mapped[float] = mapped_column(Float, default=100.0)
+
     # Impedância da fonte (concessionária / equivalente Thévenin)
     z_source_r_ohm: Mapped[float] = mapped_column(Float, default=0.0)
     z_source_x_ohm: Mapped[float] = mapped_column(Float, default=0.0)
